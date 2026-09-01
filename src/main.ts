@@ -19,7 +19,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 6</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 7</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -106,6 +106,8 @@ let sourceFingerprints: PageFingerprint[] = [];
 let targetFingerprints: PageFingerprint[] = [];
 let reviewPairs: PagePair[] = [];
 let reviewDecisions = new Map<string, "same" | "different">();
+let transferPreviewSourceIds = new Set<string>();
+let transferPreviewSession = 0;
 let pendingInstall: Event & { prompt(): Promise<void> } | null = null;
 
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -128,14 +130,16 @@ window.addEventListener("beforeinstallprompt", (event) => {
 });
 byId("installButton").addEventListener("click", async () => pendingInstall?.prompt());
 
-byId<HTMLInputElement>("goodnotesInput").addEventListener("change", (event) => {
+byId<HTMLInputElement>("goodnotesInput").addEventListener("change", async (event) => {
   goodnotesFile = (event.target as HTMLInputElement).files?.[0] ?? null;
   byId("goodnotesName").textContent = goodnotesFile?.name ?? ".goodnotes 선택";
+  await resetTransferAnalysis();
   syncTransferReady();
 });
-byId<HTMLInputElement>("revisedInput").addEventListener("change", (event) => {
+byId<HTMLInputElement>("revisedInput").addEventListener("change", async (event) => {
   revisedFile = (event.target as HTMLInputElement).files?.[0] ?? null;
   byId("revisedName").textContent = revisedFile?.name ?? "PDF 선택";
+  await resetTransferAnalysis();
   syncTransferReady();
 });
 
@@ -144,14 +148,47 @@ function syncTransferReady(): void {
   byId("transferResult").hidden = true;
 }
 
+async function resetTransferAnalysis(): Promise<void> {
+  transferBoard?.destroy();
+  transferBoard = null;
+  byId("transferReviews").replaceChildren();
+  byId<HTMLElement>("transferReviewsSection").hidden = true;
+  const details = byId<HTMLDetailsElement>("transferMapDetails");
+  details.open = false;
+  details.querySelector(".summary-action")!.textContent = "펼치기";
+  byId("transferResult").hidden = true;
+  byId<HTMLButtonElement>("createGoodnotesButton").disabled = true;
+  await releasePdfPreviews(transferPreviewSourceIds);
+  transferPreviewSourceIds = new Set();
+  revisedWorkspace.clear();
+  inspection = null;
+  transferOrder = [];
+  transferMatch = null;
+  transferStatuses = new Map();
+  sourceFingerprints = [];
+  targetFingerprints = [];
+  reviewPairs = [];
+  reviewDecisions = new Map();
+  transferPreviewSession++;
+  status("transferStatus");
+}
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 byId("analyzeTransferButton").addEventListener("click", async () => {
   if (!goodnotesFile || !revisedFile) return;
-  status("transferStatus", "GoodNotes 구조와 PDF 페이지를 기기 안에서 분석하고 있습니다…", "working");
   byId<HTMLButtonElement>("analyzeTransferButton").disabled = true;
+  byId<HTMLInputElement>("goodnotesInput").disabled = true;
+  byId<HTMLInputElement>("revisedInput").disabled = true;
   try {
+    await resetTransferAnalysis();
+    status("transferStatus", "GoodNotes 구조와 PDF 페이지를 기기 안에서 분석하고 있습니다…", "working");
+    await yieldToBrowser();
     inspection = await inspectGoodNotes(goodnotesFile);
-    revisedWorkspace.clear();
     await revisedWorkspace.addFiles([revisedFile]);
+    for (const sourceId of revisedWorkspace.sources.keys()) transferPreviewSourceIds.add(sourceId);
     transferOrder = [...revisedWorkspace.pages];
     sourceFingerprints = await fingerprintPdf(
       inspection.backgroundBytes,
@@ -165,6 +202,8 @@ byId("analyzeTransferButton").addEventListener("click", async () => {
       (message) => status("transferStatus", message, "working"),
       "수정 PDF",
     );
+    status("transferStatus", "페이지 대응 관계를 계산하고 있습니다…", "working");
+    await yieldToBrowser();
     transferMatch = matchFingerprints(sourceFingerprints, targetFingerprints);
     const activeSources = new Set(inspection.activePages
       .filter((page) => page.attachmentId && inspection!.backgroundAttachmentIds.includes(page.attachmentId))
@@ -190,6 +229,8 @@ byId("analyzeTransferButton").addEventListener("click", async () => {
   } catch (error) {
     status("transferStatus", error instanceof Error ? error.message : "분석에 실패했습니다.", "error");
   } finally {
+    byId<HTMLInputElement>("goodnotesInput").disabled = false;
+    byId<HTMLInputElement>("revisedInput").disabled = false;
     byId<HTMLButtonElement>("analyzeTransferButton").disabled = !(goodnotesFile && revisedFile);
   }
 });
@@ -225,8 +266,10 @@ function renderTransferReviews(): void {
   const answered = reviewPairs.filter((pair) => reviewDecisions.has(reviewKey(pair))).length;
   byId("reviewProgress").textContent = `${answered} / ${reviewPairs.length} 확인`;
   if (!inspection) return;
+  const backgroundId = `goodnotes-background-${transferPreviewSession}`;
+  transferPreviewSourceIds.add(backgroundId);
   const backgroundSource: PdfSource = {
-    id: `goodnotes-background-${inspection.backgroundBytes.length}`,
+    id: backgroundId,
     name: "기존 GoodNotes 배경",
     file: new File([inspection.backgroundBytes.slice().buffer as ArrayBuffer], "background.pdf", { type: "application/pdf" }),
     bytes: inspection.backgroundBytes,
@@ -243,8 +286,8 @@ function renderTransferReviews(): void {
       <div class="review-images"><div><small>기존 페이지</small><img alt="기존 ${pair.sourceIndex! + 1}쪽"></div><div><small>수정 페이지</small><img alt="수정 ${pair.targetIndex! + 1}쪽"></div></div>
       <div class="review-actions"><button type="button" class="secondary ${decision === "same" ? "selected" : ""}" data-value="same">같은 페이지</button><button type="button" class="quiet ${decision === "different" ? "selected danger" : ""}" data-value="different">다른 페이지</button></div>`;
     const images = card.querySelectorAll<HTMLImageElement>("img");
-    void renderThumbnail(backgroundSource, pair.sourceIndex!).then((value) => { if (images[0]) images[0].src = value; });
-    if (targetSource) void renderThumbnail(targetSource, pair.targetIndex!).then((value) => { if (images[1]) images[1].src = value; });
+    void renderThumbnail(backgroundSource, pair.sourceIndex!).then((value) => { if (images[0]?.isConnected) images[0].src = value; }).catch(() => undefined);
+    if (targetSource) void renderThumbnail(targetSource, pair.targetIndex!).then((value) => { if (images[1]?.isConnected) images[1].src = value; }).catch(() => undefined);
     card.querySelectorAll<HTMLButtonElement>("[data-value]").forEach((button) => button.addEventListener("click", () => {
       const value = button.dataset.value as "same" | "different";
       reviewDecisions.set(key, value);
@@ -359,9 +402,11 @@ function renderMergeBoard(): void {
 }
 
 byId("clearMergeButton").addEventListener("click", async () => {
+  const sourceIds = [...mergeWorkspace.sources.keys()];
   mergeBoard?.destroy();
+  mergeBoard = null;
   mergeWorkspace.clear();
-  await releasePdfPreviews();
+  await releasePdfPreviews(sourceIds);
   renderMergeBoard();
   status("mergeStatus");
 });

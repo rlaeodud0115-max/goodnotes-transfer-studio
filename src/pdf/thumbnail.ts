@@ -23,8 +23,16 @@ export async function renderThumbnail(source: PdfSource, pageIndex: number, maxW
   const canvas = documentOwnerCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) throw new Error("페이지 미리보기 화면을 만들 수 없습니다.");
-  await page.render({ canvas, canvasContext: context, viewport }).promise;
-  return canvas.toDataURL("image/jpeg", 0.78);
+  try {
+    await page.render({ canvas, canvasContext: context, viewport }).promise;
+    return canvas.toDataURL("image/jpeg", 0.78);
+  } finally {
+    page.cleanup();
+    // Safari keeps a canvas' backing store after the element becomes unreachable.
+    // Shrinking it explicitly is important when many previews are opened repeatedly.
+    canvas.width = 1;
+    canvas.height = 1;
+  }
 }
 
 function documentOwnerCanvas(width: number, height: number): HTMLCanvasElement {
@@ -34,9 +42,13 @@ function documentOwnerCanvas(width: number, height: number): HTMLCanvasElement {
   return canvas;
 }
 
-export async function releasePdfPreviews(): Promise<void> {
-  const pending = [...documents.values()];
-  documents.clear();
+export async function releasePdfPreviews(sourceIds?: Iterable<string>): Promise<void> {
+  const ids = sourceIds ? [...new Set(sourceIds)] : [...documents.keys()];
+  const pending = ids.flatMap((id) => {
+    const item = documents.get(id);
+    documents.delete(id);
+    return item ? [item] : [];
+  });
   for (const item of pending) {
     try {
       const document = await item;

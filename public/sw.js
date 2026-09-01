@@ -1,4 +1,4 @@
-const CACHE = "gn-studio-shell-v7";
+const CACHE = "gn-studio-shell-v8";
 const SHELL = ["./", "./manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

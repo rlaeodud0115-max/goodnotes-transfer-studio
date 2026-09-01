@@ -65,34 +65,40 @@ async function fingerprintPage(document: PDFDocumentProxy, index: number): Promi
   const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
   if (!context) throw new Error("PDF 분석 화면을 만들 수 없습니다.");
   await page.render({ canvas, canvasContext: context, viewport }).promise;
-  const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  const gray = new Uint8Array(canvas.width * canvas.height);
-  for (let pixel = 0, offset = 0; pixel < gray.length; pixel++, offset += 4) {
-    gray[pixel] = Math.round(0.299 * (rgba[offset] ?? 255) + 0.587 * (rgba[offset + 1] ?? 255) + 0.114 * (rgba[offset + 2] ?? 255));
-  }
-  const pixelBox = findInkBox(gray, canvas.width, canvas.height);
-  const fullCells = normalize(sampleGrid(gray, canvas.width, canvas.height, { left: 0, top: 0, right: canvas.width, bottom: canvas.height }));
-  const edgeCells = normalizeEdges(fullCells);
-  let cells: number[] = [];
-  let aspect = 1;
-  let box: InkBox | undefined;
-  if (pixelBox) {
-    cells = normalize(sampleGrid(gray, canvas.width, canvas.height, pixelBox));
-    aspect = (pixelBox.right - pixelBox.left) / Math.max(1, pixelBox.bottom - pixelBox.top);
-    box = {
-      x0: pixelBox.left / scale, y0: pixelBox.top / scale,
-      x1: pixelBox.right / scale, y1: pixelBox.bottom / scale,
-      width: (pixelBox.right - pixelBox.left) / scale,
-      height: (pixelBox.bottom - pixelBox.top) / scale,
-    };
-  }
+  const visual = (() => {
+    const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const gray = new Uint8Array(canvas.width * canvas.height);
+    for (let pixel = 0, offset = 0; pixel < gray.length; pixel++, offset += 4) {
+      gray[pixel] = Math.round(0.299 * (rgba[offset] ?? 255) + 0.587 * (rgba[offset + 1] ?? 255) + 0.114 * (rgba[offset + 2] ?? 255));
+    }
+    const pixelBox = findInkBox(gray, canvas.width, canvas.height);
+    const fullCells = normalize(sampleGrid(gray, canvas.width, canvas.height, { left: 0, top: 0, right: canvas.width, bottom: canvas.height }));
+    const edgeCells = normalizeEdges(fullCells);
+    let cells: number[] = [];
+    let aspect = 1;
+    let box: InkBox | undefined;
+    if (pixelBox) {
+      cells = normalize(sampleGrid(gray, canvas.width, canvas.height, pixelBox));
+      aspect = (pixelBox.right - pixelBox.left) / Math.max(1, pixelBox.bottom - pixelBox.top);
+      box = {
+        x0: pixelBox.left / scale, y0: pixelBox.top / scale,
+        x1: pixelBox.right / scale, y1: pixelBox.bottom / scale,
+        width: (pixelBox.right - pixelBox.left) / scale,
+        height: (pixelBox.bottom - pixelBox.top) / scale,
+      };
+    }
+    return { cells, fullCells, edgeCells, aspect, box };
+  })();
+  // Release the GPU-backed canvas before text extraction and the next page.
+  canvas.width = 1;
+  canvas.height = 1;
   let content = "";
   try {
     const textContent = await page.getTextContent();
     content = normalizeText(textContent.items.map((item) => "str" in item ? item.str : "").join(" "));
   } catch { /* Image-only pages intentionally have no text fingerprint. */ }
   page.cleanup();
-  return { index, cells, fullCells, edgeCells, aspect, text: content, box };
+  return { index, ...visual, text: content };
 }
 
 function findInkBox(gray: Uint8Array, width: number, height: number) {
@@ -154,15 +160,32 @@ function dice(left: Set<string>, right: Set<string>): number {
   return 2 * common / (left.size + right.size);
 }
 
-function textSimilarity(left: string, right: string): number | null {
-  const lt = left.split(" ").filter(Boolean), rt = right.split(" ").filter(Boolean);
-  const lc = lt.join(""), rc = rt.join("");
-  if (lc.length < 16 || rc.length < 16 || lt.length < 3 || rt.length < 3) return null;
-  const grams = (value: string) => new Set(Array.from({ length: Math.max(0, value.length - 2) }, (_, index) => value.slice(index, index + 3)));
-  return 0.6 * dice(new Set(lt), new Set(rt)) + 0.4 * dice(grams(lc), grams(rc));
+interface TextFeatures { usable: boolean; tokens: Set<string>; grams: Set<string> }
+
+function prepareText(value: string): TextFeatures {
+  const words = value.split(" ").filter(Boolean);
+  const compact = words.join("");
+  if (compact.length < 16 || words.length < 3) return { usable: false, tokens: new Set(), grams: new Set() };
+  const grams = new Set<string>();
+  for (let index = 0; index < compact.length - 2; index++) grams.add(compact.slice(index, index + 3));
+  return { usable: true, tokens: new Set(words), grams };
+}
+
+function textSimilarityFromFeatures(left: TextFeatures, right: TextFeatures): number | null {
+  if (!left.usable || !right.usable) return null;
+  return 0.6 * dice(left.tokens, right.tokens) + 0.4 * dice(left.grams, right.grams);
 }
 
 export function fingerprintDistance(left: PageFingerprint, right: PageFingerprint): number {
+  return fingerprintDistancePrepared(left, right, prepareText(left.text), prepareText(right.text));
+}
+
+function fingerprintDistancePrepared(
+  left: PageFingerprint,
+  right: PageFingerprint,
+  leftText: TextFeatures,
+  rightText: TextFeatures,
+): number {
   let visual: number;
   if (!left.cells.length || !right.cells.length) visual = !left.cells.length && !right.cells.length ? 0 : EMPTY_DISTANCE;
   else {
@@ -175,7 +198,7 @@ export function fingerprintDistance(left: PageFingerprint, right: PageFingerprin
       visual += 0.08 * edge;
     }
   }
-  const similarity = textSimilarity(left.text, right.text);
+  const similarity = textSimilarityFromFeatures(leftText, rightText);
   if (similarity == null) return visual;
   const hybrid = 0.55 * Math.min(visual, 1.2) + 0.60 * (1 - similarity);
   return similarity >= 0.82 ? Math.min(hybrid, 1.5 * (1 - similarity)) : hybrid;
@@ -183,7 +206,11 @@ export function fingerprintDistance(left: PageFingerprint, right: PageFingerprin
 
 export function matchFingerprints(source: PageFingerprint[], target: PageFingerprint[]): MatchResult {
   if (source.length * target.length > 400_000) throw new Error(`페이지가 너무 많습니다: ${source.length} × ${target.length}`);
-  const matrix = source.map((left) => target.map((right) => fingerprintDistance(left, right)));
+  // Reusing text tokens prevents thousands of repeated allocations on large lectures.
+  const sourceText = source.map((page) => prepareText(page.text));
+  const targetText = target.map((page) => prepareText(page.text));
+  const matrix = source.map((left, row) => target.map((right, column) =>
+    fingerprintDistancePrepared(left, right, sourceText[row]!, targetText[column]!)));
   const rows = source.length, columns = target.length;
   const cost = Array.from({ length: rows + 1 }, () => new Float64Array(columns + 1));
   const choice = Array.from({ length: rows + 1 }, () => new Uint8Array(columns + 1));
