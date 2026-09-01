@@ -19,7 +19,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 4</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 6</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -38,12 +38,17 @@ app.innerHTML = `
       <p class="privacy-note">🔒 파일은 서버에 업로드하지 않고 현재 기기 안에서 분석·변환합니다. 원본 파일은 직접 삭제되지 않습니다.</p>
       <div id="transferStatus" class="status" aria-live="polite"></div>
       <section id="transferResult" class="result" hidden>
-        <div class="metrics">
-          <div><span>활성 GoodNotes 페이지</span><strong id="activePages">-</strong></div>
-          <div><span>기존 배경 PDF</span><strong id="sourcePages">-</strong></div>
-          <div><span>수정 PDF</span><strong id="targetPages">-</strong></div>
-          <div><span>문서 형식</span><strong id="formatVersion">-</strong></div>
+        <div class="change-summary-head">
+          <div><h2>변경사항 확인</h2><p id="changeSummaryText">페이지 변경을 확인했습니다.</p></div>
+          <button id="chooseOtherFilesButton" class="quiet">다른 파일 선택</button>
         </div>
+        <div class="metrics">
+          <div><span>기존 활성 페이지</span><strong id="activePages">-</strong></div>
+          <div class="metric-added"><span>새 페이지</span><strong id="addedPages">-</strong></div>
+          <div class="metric-deleted"><span>삭제 후보</span><strong id="deletedPages">-</strong></div>
+          <div class="metric-review"><span>직접 확인</span><strong id="reviewPages">-</strong></div>
+        </div>
+        <div class="matching-rule"><strong>자동 매칭 기준</strong><p>거리 0.25 미만은 자동으로 같은 페이지로 처리합니다. 0.25 이상이거나 비슷한 후보가 여러 개면 아래에서 직접 확인하세요.</p></div>
         <section id="transferReviewsSection" class="transfer-reviews" hidden>
           <div class="section-heading"><strong>수정된 페이지 확인</strong><small id="reviewProgress"></small></div>
           <div id="transferReviews"></div>
@@ -171,19 +176,26 @@ byId("analyzeTransferButton").addEventListener("click", async () => {
     refreshTransferStatuses(activeSources);
     renderTransferReviews();
     byId("activePages").textContent = `${inspection.activePages.length}장`;
-    byId("sourcePages").textContent = `${inspection.backgroundPageCount}장`;
-    byId("targetPages").textContent = `${transferOrder.length}장`;
-    byId("formatVersion").textContent = inspection.eventVersion >= 35 ? "GoodNotes 6" : "GoodNotes 5 호환";
-    byId("transferResult").hidden = false;
-    syncCreateButtons();
     const added = [...transferStatuses.values()].filter((value) => value === "added").length;
     const review = [...transferStatuses.values()].filter((value) => value === "review").length;
-    status("transferStatus", `페이지 매칭을 완료했습니다. 새 페이지 ${added}장 · 확인 필요 ${review}장입니다.`, "success");
+    const matchedSources = new Set([...transferMatch.mapping.keys()]);
+    const deleted = [...activeSources].filter((sourceIndex) => !matchedSources.has(sourceIndex)).length;
+    byId("addedPages").textContent = `${added}장`;
+    byId("deletedPages").textContent = `${deleted}장`;
+    byId("reviewPages").textContent = `${review}장`;
+    byId("changeSummaryText").textContent = `페이지 변경을 찾았습니다: 추가 ${added}장${deleted ? ` · 삭제 후보 ${deleted}장` : ""}.`;
+    byId("transferResult").hidden = false;
+    syncCreateButtons();
+    status("transferStatus");
   } catch (error) {
     status("transferStatus", error instanceof Error ? error.message : "분석에 실패했습니다.", "error");
   } finally {
     byId<HTMLButtonElement>("analyzeTransferButton").disabled = !(goodnotesFile && revisedFile);
   }
+});
+
+byId("chooseOtherFilesButton").addEventListener("click", () => {
+  document.querySelector(".file-grid")?.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
 function activeBackgroundSources(): Set<number> {
@@ -370,4 +382,6 @@ byId("mergeSaveButton").addEventListener("click", async () => {
   } catch (error) { status("mergeStatus", error instanceof Error ? error.message : "PDF 저장에 실패했습니다.", "error"); }
 });
 
-if ("serviceWorker" in navigator) window.addEventListener("load", () => void navigator.serviceWorker.register("./sw.js"));
+if ("serviceWorker" in navigator) window.addEventListener("load", () => {
+  void navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then((registration) => registration.update());
+});
