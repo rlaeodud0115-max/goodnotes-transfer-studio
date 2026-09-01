@@ -49,12 +49,28 @@ export async function releasePdfPreviews(sourceIds?: Iterable<string>): Promise<
     documents.delete(id);
     return item ? [item] : [];
   });
-  for (const item of pending) {
+  await Promise.all(pending.map(async (item) => {
     try {
       const document = await item;
-      await document.destroy();
+      await destroyPreviewDocumentSafely(document);
     } catch {
       // A failed preview has no reusable resources.
     }
-  }
+  }));
+}
+
+async function destroyPreviewDocumentSafely(document: Awaited<ReturnType<typeof open>>): Promise<void> {
+  if (/iPad/i.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return;
+  await new Promise<void>((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, 1_000);
+    void document.destroy().then(finish, finish);
+  });
 }

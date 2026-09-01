@@ -43,17 +43,40 @@ export type ProgressCallback = (message: string, completed: number, total: numbe
 export async function fingerprintPdf(bytes: Uint8Array, onProgress?: ProgressCallback, label = "PDF"): Promise<PageFingerprint[]> {
   const task = getDocument({ data: bytes.slice() });
   const document = await task.promise;
+  const output: PageFingerprint[] = [];
   try {
-    const output: PageFingerprint[] = [];
     for (let index = 0; index < document.numPages; index++) {
       onProgress?.(`${label} ${index + 1}/${document.numPages}쪽 분석`, index, document.numPages);
       output.push(await fingerprintPage(document, index));
     }
-    onProgress?.(`${label} 분석 완료`, document.numPages, document.numPages);
-    return output;
   } finally {
-    await document.destroy();
+    await destroyPdfDocumentSafely(document);
   }
+  onProgress?.(`${label} 분석 완료`, document.numPages, document.numPages);
+  return output;
+}
+
+async function destroyPdfDocumentSafely(document: PDFDocumentProxy): Promise<void> {
+  // Some iPadOS Safari/PDF.js combinations never resolve destroy() for PDFs
+  // with particular embedded fonts or image streams. Cleanup should not block
+  // the actual comparison forever.
+  if (isIPadOS()) return;
+  await new Promise<void>((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, 1_000);
+    void document.destroy().then(finish, finish);
+  });
+}
+
+function isIPadOS(): boolean {
+  return /iPad/i.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
 async function fingerprintPage(document: PDFDocumentProxy, index: number): Promise<PageFingerprint> {
