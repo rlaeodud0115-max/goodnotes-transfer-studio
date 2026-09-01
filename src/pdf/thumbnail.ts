@@ -1,5 +1,5 @@
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { PdfSource } from "./composer";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -60,8 +60,6 @@ export async function releasePdfPreviews(sourceIds?: Iterable<string>): Promise<
 }
 
 async function destroyPreviewDocumentSafely(document: Awaited<ReturnType<typeof open>>): Promise<void> {
-  if (/iPad/i.test(navigator.userAgent)
-    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return;
   await new Promise<void>((resolve) => {
     let finished = false;
     const finish = () => {

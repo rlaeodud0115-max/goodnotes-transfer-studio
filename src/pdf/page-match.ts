@@ -1,5 +1,5 @@
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -60,7 +60,6 @@ async function destroyPdfDocumentSafely(document: PDFDocumentProxy): Promise<voi
   // Some iPadOS Safari/PDF.js combinations never resolve destroy() for PDFs
   // with particular embedded fonts or image streams. Cleanup should not block
   // the actual comparison forever.
-  if (isIPadOS()) return;
   await new Promise<void>((resolve) => {
     let finished = false;
     const finish = () => {
@@ -72,11 +71,6 @@ async function destroyPdfDocumentSafely(document: PDFDocumentProxy): Promise<voi
     const timer = setTimeout(finish, 1_000);
     void document.destroy().then(finish, finish);
   });
-}
-
-function isIPadOS(): boolean {
-  return /iPad/i.test(navigator.userAgent)
-    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
 async function fingerprintPage(document: PDFDocumentProxy, index: number): Promise<PageFingerprint> {
