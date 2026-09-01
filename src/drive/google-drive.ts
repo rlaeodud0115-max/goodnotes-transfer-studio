@@ -1,6 +1,7 @@
 export interface GoogleDriveConfig {
   clientId: string;
   apiKey: string;
+  projectNumber: string;
 }
 
 interface TokenResponse { access_token?: string; error?: string }
@@ -24,9 +25,9 @@ export class GoogleDriveClient {
 
   get config(): GoogleDriveConfig {
     try {
-      return { clientId: "", apiKey: "", ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+      return { clientId: "", apiKey: "", projectNumber: "", ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
     } catch {
-      return { clientId: "", apiKey: "" };
+      return { clientId: "", apiKey: "", projectNumber: "" };
     }
   }
 
@@ -36,7 +37,9 @@ export class GoogleDriveClient {
 
   async connect(): Promise<void> {
     const config = this.config;
-    if (!config.clientId || !config.apiKey) throw new Error("설정에서 Google OAuth Client ID와 Picker API Key를 입력해 주세요.");
+    if (!config.clientId || !config.apiKey || !config.projectNumber) {
+      throw new Error("설정에서 Google OAuth Client ID, Cloud 프로젝트 번호, Picker API Key를 입력해 주세요.");
+    }
     await Promise.all([
       loadScript("https://accounts.google.com/gsi/client", "google-identity"),
       loadScript("https://apis.google.com/js/api.js", "google-api"),
@@ -65,6 +68,7 @@ export class GoogleDriveClient {
       .setMimeTypes("application/pdf,application/zip,application/octet-stream");
     const documents = await new Promise<PickerDocument[]>((resolve, reject) => {
       const picker = new pickerApi.PickerBuilder()
+        .setAppId(this.config.projectNumber)
         .setDeveloperKey(this.config.apiKey)
         .setOAuthToken(this.accessToken)
         .addView(view)

@@ -36,14 +36,16 @@ pnpm run build
 
 ## Google Drive 설정
 
-앱 우측 상단의 **Google Drive 설정**에서 아래 두 값을 한 번 입력합니다. 값은 현재 기기의 브라우저 저장소에만 보관됩니다.
+앱 우측 상단의 **Google Drive 설정**에서 OAuth Client ID, Cloud 프로젝트 번호, Picker API Key를 한 번 입력합니다. 값은 현재 기기의 브라우저 저장소에만 보관됩니다.
 
 1. Google Cloud Console에서 프로젝트를 만듭니다.
 2. **Google Drive API**와 **Google Picker API**를 사용 설정합니다.
 3. OAuth 동의 화면을 구성합니다.
 4. 웹 애플리케이션 유형의 OAuth 2.0 Client ID를 만들고, 배포할 HTTPS 주소를 승인된 JavaScript 원본에 추가합니다.
-5. API Key를 만들고 가능하면 Google Picker API 및 운영 도메인으로 제한합니다.
-6. 앱 설정 창에 OAuth Client ID와 API Key를 입력합니다.
+5. API Key를 만들고 웹사이트 제한에 `https://goodnotes-transfer-studio.onrender.com/*`와 `https://docs.google.com/*`를 모두 추가합니다.
+6. API 제한에는 Google Picker API와 Google Drive API를 선택합니다.
+7. 프로젝트 **개요/대시보드**에서 숫자로 된 프로젝트 번호를 복사합니다. 프로젝트 ID 문자열과는 다른 값입니다.
+8. 앱 설정 창에 OAuth Client ID, 프로젝트 번호, API Key를 입력합니다.
 
 앱은 `drive.file` 권한만 요청합니다. 사용자가 앱에서 고르거나 앱이 만든 파일만 다룹니다.
 

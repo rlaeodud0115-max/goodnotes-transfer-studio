@@ -72,6 +72,7 @@ app.innerHTML = `
     <form method="dialog" class="dialog-card">
       <div class="dialog-head"><div><strong>Google Drive 연결 설정</strong><small>Google Cloud에서 발급한 웹 앱 키를 이 기기에만 저장합니다.</small></div><button value="cancel" class="icon-button" aria-label="닫기">✕</button></div>
       <label>OAuth Client ID<input id="googleClientId" autocomplete="off" placeholder="000000000000-….apps.googleusercontent.com" /></label>
+      <label>Cloud 프로젝트 번호<input id="googleProjectNumber" inputmode="numeric" autocomplete="off" placeholder="123456789012" /></label>
       <label>Google Picker API Key<input id="googleApiKey" autocomplete="off" placeholder="AIza…" /></label>
       <p class="dialog-help">승인된 JavaScript 원본에 이 앱의 주소를 등록해야 합니다. 키는 브라우저의 로컬 저장소에만 보관됩니다.</p>
       <button id="saveDriveSettings" value="default" class="primary">저장</button>
@@ -119,11 +120,13 @@ byId("installButton").addEventListener("click", async () => pendingInstall?.prom
 const driveDialog = byId<HTMLDialogElement>("driveDialog");
 byId("driveSettingsButton").addEventListener("click", () => {
   byId<HTMLInputElement>("googleClientId").value = drive.config.clientId;
+  byId<HTMLInputElement>("googleProjectNumber").value = drive.config.projectNumber;
   byId<HTMLInputElement>("googleApiKey").value = drive.config.apiKey;
   driveDialog.showModal();
 });
 byId("saveDriveSettings").addEventListener("click", () => drive.saveConfig({
   clientId: byId<HTMLInputElement>("googleClientId").value.trim(),
+  projectNumber: byId<HTMLInputElement>("googleProjectNumber").value.trim(),
   apiKey: byId<HTMLInputElement>("googleApiKey").value.trim(),
 }));
 
