@@ -1,0 +1,90 @@
+/* Beta 3 landing page: original web look, editor behavior unchanged. */
+:root {
+  --landing-panel: #171d27;
+  --landing-card: #151b24;
+  --landing-border: #303947;
+}
+
+body { background: #0d1118; }
+main { width: min(1160px, calc(100% - 32px)); padding-bottom: 72px; }
+.app-header { background: rgba(13, 17, 24, .92); border-bottom-color: #252d39; }
+.hero { text-align: center; padding: 82px 0 42px; }
+.hero .eyebrow {
+  display: inline-flex; align-items: center; width: auto; margin: 0 auto 18px;
+  padding: 8px 15px; border-radius: 999px; background: #14294c; color: #74a7ff;
+  font-size: 13px; font-weight: 900; letter-spacing: .02em;
+}
+.hero h1 {
+  max-width: 820px; margin: 0 auto; font-size: clamp(44px, 6vw, 72px);
+  line-height: 1.08; letter-spacing: -.055em;
+}
+.hero p { max-width: 850px; margin: 20px auto 0; color: #aab3c2; font-size: 17px; line-height: 1.75; }
+.tabs { justify-content: center; margin-bottom: 18px; }
+.panel { background: var(--landing-panel); border-color: var(--landing-border); border-radius: 24px; box-shadow: none; }
+.transfer-heading { display: none; }
+.file-grid { gap: 18px; }
+.file-card {
+  min-height: 245px; padding: 26px; border: 2px dashed #333d4c; border-radius: 20px;
+  background: var(--landing-card); grid-template-rows: auto auto 1fr auto; align-content: start;
+}
+.file-card:hover { border-color: #5791ef; background: #182130; }
+.file-title-row { display: flex; align-items: center; gap: 13px; font-size: 18px; }
+.file-number {
+  display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px;
+  background: #12315d; color: #7eb0ff; font-size: 20px; font-weight: 900; flex: 0 0 auto;
+}
+.file-card small { margin-top: 6px; color: #aab3c2; font-size: 14px; line-height: 1.55; }
+.file-choice {
+  display: grid; place-items: center; align-self: end; min-height: 56px; padding: 10px 16px;
+  border: 1px solid #343e4c; border-radius: 14px; background: #161c25; color: #f5f7fb;
+  font-size: 16px; font-weight: 900; text-align: center; overflow-wrap: anywhere;
+}
+.file-card input { z-index: 2; cursor: pointer; }
+.transfer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin-top: 20px; }
+.transfer-actions button { min-height: 58px; }
+.transfer-actions .primary { font-size: 17px; font-weight: 900; }
+.privacy-note { margin: 18px 2px 0; color: #aab3c2; font-size: 13px; line-height: 1.6; }
+.guide {
+  margin-top: 26px; padding: 31px; background: var(--landing-panel);
+  border: 1px solid var(--landing-border); border-radius: 24px;
+}
+.guide-heading .step-label { color: #76a8ff; font-size: 12px; font-weight: 900; letter-spacing: .18em; }
+.guide-heading h2 { margin: 8px 0 6px; font-size: 28px; letter-spacing: -.035em; }
+.guide-heading p { margin: 0; color: #aab3c2; line-height: 1.65; }
+.guide-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
+.guide-grid article, .guide-extra > div { border: 1px solid #303947; border-radius: 17px; background: #151b24; }
+.guide-grid article { min-height: 175px; padding: 20px; }
+.guide-grid span {
+  display: grid; place-items: center; width: 39px; height: 39px; margin-bottom: 16px;
+  border-radius: 12px; background: #132d53; color: #77aaff; font-size: 17px; font-weight: 900;
+}
+.guide-grid strong, .guide-extra strong { display: block; margin-bottom: 8px; color: #f5f7fb; font-size: 16px; }
+.guide-grid p, .guide-extra p { margin: 0; color: #aab3c2; font-size: 13px; line-height: 1.65; }
+.guide-extra { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.guide-extra > div { padding: 18px 20px; }
+
+@media (max-width: 900px) {
+  .hero { padding-top: 66px; }
+  .guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .guide-extra { grid-template-columns: 1fr; }
+  .transfer-actions { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  main { width: min(100% - 20px, 1160px); }
+  .hero { padding: 46px 6px 28px; }
+  .hero .eyebrow { font-size: 11px; }
+  .hero h1 { font-size: 39px; }
+  .hero p { font-size: 14px; line-height: 1.65; }
+  .tabs { justify-content: stretch; }
+  .tabs button { flex: 1; }
+  .panel, .guide { padding: 18px; border-radius: 20px; }
+  .file-card { min-height: 205px; padding: 20px; }
+  .file-title-row { font-size: 16px; }
+  .file-number { width: 39px; height: 39px; }
+  .guide-grid { grid-template-columns: 1fr; }
+  .guide-grid article { min-height: 0; }
+  .transfer-actions button { width: 100%; }
+  .privacy-note { font-size: 12px; }
+  .guide-heading h2 { font-size: 24px; }
+}

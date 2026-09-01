@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./landing.css";
 import "./review.css";
 import { PdfWorkspace, type PdfPageItem, type PdfSource } from "./pdf/composer";
 import { renderThumbnail, releasePdfPreviews } from "./pdf/thumbnail";
@@ -8,6 +9,7 @@ import { GoogleDriveClient } from "./drive/google-drive";
 import { inspectGoodNotes, type GoodNotesInspection } from "./goodnotes/archive";
 import { fingerprintPdf, matchFingerprints, type MatchResult } from "./pdf/page-match";
 import type { PageFingerprint, PagePair } from "./pdf/page-match";
+import { requiresPageReview } from "./pdf/review-policy";
 import { transferGoodNotes } from "./goodnotes/transfer";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -18,9 +20,9 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">MAC · IPAD · OFFLINE READY</span>
-      <h1>강의록을 합치고,<br>필기는 그대로 옮기세요.</h1>
-      <p>문서는 서버에 업로드하지 않고 이 기기 안에서 처리합니다. 전체 페이지 구성표는 필요할 때만 열 수 있습니다.</p>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 3</span>
+      <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
+      <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
     <nav class="tabs" aria-label="작업 선택">
       <button class="tab active" data-tab="transfer">GoodNotes 옮기기</button>
@@ -28,12 +30,13 @@ app.innerHTML = `
     </nav>
 
     <section id="transferPanel" class="panel active">
-      <div class="panel-heading"><div><span class="step-label">GOODNOTES</span><h2>수정 강의록에 기존 필기 옮기기</h2></div></div>
+      <div class="panel-heading transfer-heading"><div><span class="step-label">GOODNOTES</span><h2>수정 강의록에 기존 필기 옮기기</h2></div></div>
       <div class="file-grid">
-        <label class="file-card"><span class="file-number">1</span><strong>기존 GoodNotes 문서</strong><small id="goodnotesName">.goodnotes 파일 선택</small><input id="goodnotesInput" type="file" accept=".goodnotes" /></label>
-        <label class="file-card"><span class="file-number">2</span><strong>수정된 강의록 PDF</strong><small id="revisedName">.pdf 파일 선택</small><input id="revisedInput" type="file" accept="application/pdf,.pdf" /></label>
+        <label class="file-card"><span class="file-title-row"><span class="file-number">1</span><strong>기존 GoodNotes 문서</strong></span><small>필기해 둔 GoodNotes 5·6 문서를 선택하세요.</small><span id="goodnotesName" class="file-choice">.goodnotes 선택</span><input id="goodnotesInput" type="file" accept=".goodnotes" /></label>
+        <label class="file-card"><span class="file-title-row"><span class="file-number">2</span><strong>수정된 강의록 PDF</strong></span><small>새로 배포된 수정 강의록 PDF를 선택하세요.</small><span id="revisedName" class="file-choice">PDF 선택</span><input id="revisedInput" type="file" accept="application/pdf,.pdf" /></label>
       </div>
-      <div class="row-actions"><button id="transferDriveButton" class="secondary">Google Drive에서 선택</button><button id="analyzeTransferButton" class="primary" disabled>페이지 분석하기</button></div>
+      <div class="row-actions transfer-actions"><button id="analyzeTransferButton" class="primary" disabled>페이지 비교하기</button><button id="transferDriveButton" class="secondary">Google Drive에서 선택</button></div>
+      <p class="privacy-note">🔒 파일은 서버에 업로드하지 않고 현재 기기 안에서 분석·변환합니다. 원본 파일은 직접 삭제되지 않습니다.</p>
       <div id="transferStatus" class="status" aria-live="polite"></div>
       <section id="transferResult" class="result" hidden>
         <div class="metrics">
@@ -65,6 +68,21 @@ app.innerHTML = `
         <div id="mergePageBoard" class="page-board"></div>
         <div class="row-actions sticky-actions"><button id="mergeSaveButton" class="primary">기기에 PDF 저장</button><button id="mergeDriveSaveButton" class="secondary">Google Drive에 저장</button></div>
       </section>
+    </section>
+
+    <section class="guide" aria-labelledby="guideTitle">
+      <div class="guide-heading"><span class="step-label">HOW TO USE</span><h2 id="guideTitle">처음 사용하시나요?</h2><p>GoodNotes에서 필기하던 강의록을 수정 PDF로 옮기는 과정은 네 단계면 됩니다.</p></div>
+      <div class="guide-grid">
+        <article><span>1</span><strong>파일 선택</strong><p>기존 .goodnotes 문서와 수정된 강의록 PDF를 기기 또는 Google Drive에서 선택합니다.</p></article>
+        <article><span>2</span><strong>페이지 비교</strong><p>본문과 이미지를 기준으로 페이지를 자동 매칭합니다. 거리 0.25 미만은 같은 페이지로 자동 처리합니다.</p></article>
+        <article><span>3</span><strong>결과 확인</strong><p>애매한 페이지만 확인하고, 원하면 전체 페이지 구성표를 열어 ⠿ 손잡이로 순서를 바꿉니다.</p></article>
+        <article><span>4</span><strong>GoodNotes 저장</strong><p>확인한 결과를 기기나 Google Drive에 저장한 뒤 GoodNotes에서 새 문서로 불러옵니다.</p></article>
+      </div>
+      <div class="guide-extra">
+        <div><strong>PDF 합치기</strong><p>상단의 PDF 합치기 탭에서 여러 PDF를 추가하고, 페이지를 제외하거나 드래그해 순서를 바꾼 뒤 하나로 저장하세요.</p></div>
+        <div><strong>Mac·iPad에 설치</strong><p>Safari 공유 메뉴의 ‘홈 화면에 추가’ 또는 Mac Safari의 ‘Dock에 추가’를 사용하면 앱처럼 실행할 수 있습니다.</p></div>
+        <div><strong>안전하게 사용하기</strong><p>결과를 GoodNotes에서 확인할 때까지 원본 .goodnotes 파일을 별도로 보관하세요.</p></div>
+      </div>
     </section>
   </main>
 
@@ -132,12 +150,12 @@ byId("saveDriveSettings").addEventListener("click", () => drive.saveConfig({
 
 byId<HTMLInputElement>("goodnotesInput").addEventListener("change", (event) => {
   goodnotesFile = (event.target as HTMLInputElement).files?.[0] ?? null;
-  byId("goodnotesName").textContent = goodnotesFile?.name ?? ".goodnotes 파일 선택";
+  byId("goodnotesName").textContent = goodnotesFile?.name ?? ".goodnotes 선택";
   syncTransferReady();
 });
 byId<HTMLInputElement>("revisedInput").addEventListener("change", (event) => {
   revisedFile = (event.target as HTMLInputElement).files?.[0] ?? null;
-  byId("revisedName").textContent = revisedFile?.name ?? ".pdf 파일 선택";
+  byId("revisedName").textContent = revisedFile?.name ?? "PDF 선택";
   syncTransferReady();
 });
 
@@ -172,8 +190,9 @@ byId("analyzeTransferButton").addEventListener("click", async () => {
       .filter((page) => page.attachmentId && inspection!.backgroundAttachmentIds.includes(page.attachmentId))
       .flatMap((page) => page.pdfPage == null ? [] : [page.pdfPage - 1]));
     reviewDecisions = new Map();
-    reviewPairs = transferMatch.pairs.filter((pair) => pair.sourceIndex != null && pair.targetIndex != null && activeSources.has(pair.sourceIndex)
-      && (pair.distance ?? 0) > 0.0005 && ((pair.distance ?? 1) >= 0.25 || (pair.margin != null && pair.margin < 0.08)));
+    reviewPairs = transferMatch.pairs.filter((pair) => pair.sourceIndex != null
+      && activeSources.has(pair.sourceIndex)
+      && requiresPageReview(pair));
     refreshTransferStatuses(activeSources);
     renderTransferReviews();
     byId("activePages").textContent = `${inspection.activePages.length}장`;
@@ -404,8 +423,8 @@ byId("transferDriveButton").addEventListener("click", async () => {
     const files = await drive.pickFiles();
     goodnotesFile = files.find((file) => file.name.toLowerCase().endsWith(".goodnotes")) ?? goodnotesFile;
     revisedFile = files.find((file) => file.name.toLowerCase().endsWith(".pdf")) ?? revisedFile;
-    byId("goodnotesName").textContent = goodnotesFile?.name ?? ".goodnotes 파일 선택";
-    byId("revisedName").textContent = revisedFile?.name ?? ".pdf 파일 선택";
+    byId("goodnotesName").textContent = goodnotesFile?.name ?? ".goodnotes 선택";
+    byId("revisedName").textContent = revisedFile?.name ?? "PDF 선택";
     syncTransferReady();
   } catch (error) { if ((error as DOMException).name !== "AbortError") status("transferStatus", (error as Error).message, "error"); }
 });
