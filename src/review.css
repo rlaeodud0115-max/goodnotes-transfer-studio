@@ -1,0 +1,19 @@
+.transfer-reviews { margin-top: 18px; }
+.section-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.section-heading small { color: var(--muted); }
+#transferReviews { display: grid; gap: 12px; }
+.transfer-review-card { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #0c1728; }
+.review-title { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; }
+.review-title span { color: var(--amber); font-size: 12px; font-weight: 900; }
+.review-images { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+.review-images > div { padding: 10px; background: #101c2e; }
+.review-images small { display: block; color: var(--muted); margin-bottom: 7px; }
+.review-images img { display: block; width: 100%; height: 260px; object-fit: contain; background: #fff; border-radius: 8px; }
+.review-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px; }
+.review-actions button.selected { outline: 2px solid var(--green); }
+.review-actions button.danger { outline-color: var(--red); color: var(--red); }
+
+@media (max-width: 640px) {
+  .review-images img { height: 190px; }
+  .review-title { align-items: flex-start; }
+}

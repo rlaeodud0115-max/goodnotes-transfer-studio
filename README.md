@@ -1,0 +1,72 @@
+# GoodNotes Transfer Studio
+
+GoodNotes 5·6 문서의 기존 필기를 수정된 강의록 PDF로 옮기고, 여러 PDF를 원하는 순서로 합치는 설치형 웹앱(PWA)입니다. 파일은 브라우저 안에서 처리되므로 Render의 512MB 서버 제한을 사용하지 않습니다.
+
+## 포함된 기능
+
+- GoodNotes 5 호환 형식과 GoodNotes 6 native 형식 자동 감지
+- 추가·삭제된 페이지를 본문 텍스트와 이미지 지문으로 자동 매칭
+- 배율·여백 차이를 감지해 새 배경 PDF를 기존 필기 좌표에 맞춰 정렬
+- 실제 기존 페이지와 수정 페이지 미리보기 및 애매한 항목만 확인
+- 전체 페이지 구성표는 기본적으로 닫아 두고 필요할 때만 렌더링
+- 구성표와 PDF 합치기 화면에서 손잡이 `⠿`를 마우스 또는 손가락으로 드래그해 순서 변경
+- 여러 PDF의 페이지별 포함·제외, 순서 변경, 하나의 PDF로 저장
+- Google Drive에서 입력 파일 선택 및 결과 파일 저장
+- macOS Safari와 iPadOS Safari의 홈 화면/독에 설치
+- 한 번 실행해 리소스를 캐시한 뒤 오프라인 실행(Drive 기능 제외)
+
+## 개발 실행
+
+Node.js 20 이상과 pnpm이 필요합니다.
+
+```bash
+pnpm install
+pnpm dev
+```
+
+검증과 배포 빌드:
+
+```bash
+pnpm run check
+pnpm test
+pnpm run build
+```
+
+정적 호스팅에는 `dist/` 폴더를 배포합니다. PWA 설치와 Google 로그인을 위해 운영 주소는 HTTPS여야 합니다.
+
+## Google Drive 설정
+
+앱 우측 상단의 **Google Drive 설정**에서 아래 두 값을 한 번 입력합니다. 값은 현재 기기의 브라우저 저장소에만 보관됩니다.
+
+1. Google Cloud Console에서 프로젝트를 만듭니다.
+2. **Google Drive API**와 **Google Picker API**를 사용 설정합니다.
+3. OAuth 동의 화면을 구성합니다.
+4. 웹 애플리케이션 유형의 OAuth 2.0 Client ID를 만들고, 배포할 HTTPS 주소를 승인된 JavaScript 원본에 추가합니다.
+5. API Key를 만들고 가능하면 Google Picker API 및 운영 도메인으로 제한합니다.
+6. 앱 설정 창에 OAuth Client ID와 API Key를 입력합니다.
+
+앱은 `drive.file` 권한만 요청합니다. 사용자가 앱에서 고르거나 앱이 만든 파일만 다룹니다.
+
+## Safari에 설치
+
+### iPad
+
+1. HTTPS로 배포된 앱 주소를 Safari에서 엽니다.
+2. 공유 버튼을 누릅니다.
+3. **홈 화면에 추가**를 선택합니다.
+4. 홈 화면의 **GN Studio** 아이콘으로 실행합니다.
+
+### Mac
+
+Safari에서 앱 주소를 연 뒤 **파일 → Dock에 추가**를 선택합니다. 해당 메뉴가 없는 이전 macOS에서는 Safari 즐겨찾기나 독립 브라우저 창으로 사용할 수 있습니다.
+
+## 개인정보와 주의사항
+
+- 로컬 파일은 서버로 업로드하지 않습니다. Google Drive 버튼을 사용한 파일만 사용자의 Drive와 통신합니다.
+- 변환 결과를 GoodNotes에서 확인하기 전까지 원본 `.goodnotes` 파일을 보관하세요.
+- 큰 문서는 iPad 모델과 여유 저장공간에 따라 분석·압축에 수 분이 걸릴 수 있습니다.
+- Google Drive 연동은 운영 도메인용 OAuth Client ID와 API Key가 있어야 실제 로그인 검증이 가능합니다.
+
+## 실파일 검증 기록
+
+예방의학 GoodNotes 5 샘플(활성 130쪽)과 수정 PDF(128쪽)로 브라우저 내 변환을 확인했습니다. 결과 문서는 활성 130쪽을 유지했고 기존 130개 필기 파일의 바이트가 모두 보존됐습니다.

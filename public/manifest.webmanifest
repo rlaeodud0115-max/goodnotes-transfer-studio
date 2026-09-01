@@ -1,0 +1,13 @@
+{
+  "name": "GoodNotes Transfer Studio",
+  "short_name": "GN Studio",
+  "description": "GoodNotes 필기 이전, PDF 합치기, Google Drive 연동을 기기에서 처리합니다.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#07101f",
+  "theme_color": "#0d1830",
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
