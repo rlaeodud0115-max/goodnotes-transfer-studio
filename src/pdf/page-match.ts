@@ -206,12 +206,45 @@ function fingerprintDistancePrepared(
 
 export function matchFingerprints(source: PageFingerprint[], target: PageFingerprint[]): MatchResult {
   if (source.length * target.length > 400_000) throw new Error(`페이지가 너무 많습니다: ${source.length} × ${target.length}`);
-  // Reusing text tokens prevents thousands of repeated allocations on large lectures.
   const sourceText = source.map((page) => prepareText(page.text));
   const targetText = target.map((page) => prepareText(page.text));
   const matrix = source.map((left, row) => target.map((right, column) =>
     fingerprintDistancePrepared(left, right, sourceText[row]!, targetText[column]!)));
-  const rows = source.length, columns = target.length;
+  return matchFromMatrix(matrix, source.length, target.length);
+}
+
+export async function matchFingerprintsAsync(
+  source: PageFingerprint[],
+  target: PageFingerprint[],
+  onProgress?: (completed: number, total: number) => void,
+): Promise<MatchResult> {
+  const total = source.length * target.length;
+  if (total > 400_000) throw new Error(`페이지가 너무 많습니다: ${source.length} × ${target.length}`);
+  // iPad Safari must periodically regain the main thread or it can terminate a
+  // long calculation as an unresponsive page. Text features are still reused.
+  const sourceText = source.map((page) => prepareText(page.text));
+  const targetText = target.map((page) => prepareText(page.text));
+  const matrix: number[][] = Array.from({ length: source.length }, () => []);
+  let completed = 0;
+  let lastYield = performance.now();
+  for (let row = 0; row < source.length; row++) {
+    const values = matrix[row]!;
+    for (let column = 0; column < target.length; column++) {
+      values.push(fingerprintDistancePrepared(source[row]!, target[column]!, sourceText[row]!, targetText[column]!));
+      completed++;
+      if (performance.now() - lastYield >= 12) {
+        onProgress?.(completed, total);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        lastYield = performance.now();
+      }
+    }
+  }
+  onProgress?.(total, total);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  return matchFromMatrix(matrix, source.length, target.length);
+}
+
+function matchFromMatrix(matrix: number[][], rows: number, columns: number): MatchResult {
   const cost = Array.from({ length: rows + 1 }, () => new Float64Array(columns + 1));
   const choice = Array.from({ length: rows + 1 }, () => new Uint8Array(columns + 1));
   for (let i = 1; i <= rows; i++) { cost[i]![0] = i * GAP_COST; choice[i]![0] = 1; }

@@ -6,7 +6,7 @@ import { renderThumbnail, releasePdfPreviews } from "./pdf/thumbnail";
 import { PageBoard, type BoardPage } from "./ui/page-board";
 import { saveFile } from "./lib/save-file";
 import { inspectGoodNotes, type GoodNotesInspection } from "./goodnotes/archive";
-import { fingerprintPdf, matchFingerprints, type MatchResult } from "./pdf/page-match";
+import { fingerprintPdf, matchFingerprintsAsync, type MatchResult } from "./pdf/page-match";
 import type { PageFingerprint, PagePair } from "./pdf/page-match";
 import { requiresPageReview } from "./pdf/review-policy";
 import { transferGoodNotes } from "./goodnotes/transfer";
@@ -19,7 +19,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 7</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 8</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -174,7 +174,9 @@ async function resetTransferAnalysis(): Promise<void> {
 }
 
 function yieldToBrowser(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  // A requestAnimationFrame callback runs before paint; continuing from it can
+  // still block Safari from drawing the new status. A new task lets it paint.
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 byId("analyzeTransferButton").addEventListener("click", async () => {
@@ -204,7 +206,10 @@ byId("analyzeTransferButton").addEventListener("click", async () => {
     );
     status("transferStatus", "페이지 대응 관계를 계산하고 있습니다…", "working");
     await yieldToBrowser();
-    transferMatch = matchFingerprints(sourceFingerprints, targetFingerprints);
+    transferMatch = await matchFingerprintsAsync(sourceFingerprints, targetFingerprints, (completed, total) => {
+      const percent = total ? Math.round(completed / total * 100) : 100;
+      status("transferStatus", `페이지 대응 관계를 계산하고 있습니다… ${percent}%`, "working");
+    });
     const activeSources = new Set(inspection.activePages
       .filter((page) => page.attachmentId && inspection!.backgroundAttachmentIds.includes(page.attachmentId))
       .flatMap((page) => page.pdfPage == null ? [] : [page.pdfPage - 1]));
