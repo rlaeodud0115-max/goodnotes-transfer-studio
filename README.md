@@ -11,9 +11,8 @@ GoodNotes 5·6 문서의 기존 필기를 수정된 강의록 PDF로 옮기고, 
 - 전체 페이지 구성표는 기본적으로 닫아 두고 필요할 때만 렌더링
 - 구성표와 PDF 합치기 화면에서 손잡이 `⠿`를 마우스 또는 손가락으로 드래그해 순서 변경
 - 여러 PDF의 페이지별 포함·제외, 순서 변경, 하나의 PDF로 저장
-- Google Drive에서 입력 파일 선택 및 결과 파일 저장
 - macOS Safari와 iPadOS Safari의 홈 화면/독에 설치
-- 한 번 실행해 리소스를 캐시한 뒤 오프라인 실행(Drive 기능 제외)
+- 한 번 실행해 리소스를 캐시한 뒤 오프라인 실행
 
 ## 개발 실행
 
@@ -32,22 +31,7 @@ pnpm test
 pnpm run build
 ```
 
-정적 호스팅에는 `dist/` 폴더를 배포합니다. PWA 설치와 Google 로그인을 위해 운영 주소는 HTTPS여야 합니다.
-
-## Google Drive 설정
-
-앱 우측 상단의 **Google Drive 설정**에서 OAuth Client ID, Cloud 프로젝트 번호, Picker API Key를 한 번 입력합니다. 값은 현재 기기의 브라우저 저장소에만 보관됩니다.
-
-1. Google Cloud Console에서 프로젝트를 만듭니다.
-2. **Google Drive API**와 **Google Picker API**를 사용 설정합니다.
-3. OAuth 동의 화면을 구성합니다.
-4. 웹 애플리케이션 유형의 OAuth 2.0 Client ID를 만들고, 배포할 HTTPS 주소를 승인된 JavaScript 원본에 추가합니다.
-5. API Key를 만들고 웹사이트 제한에 `https://goodnotes-transfer-studio.onrender.com/*`와 `https://docs.google.com/*`를 모두 추가합니다.
-6. API 제한에는 Google Picker API와 Google Drive API를 선택합니다.
-7. 프로젝트 **개요/대시보드**에서 숫자로 된 프로젝트 번호를 복사합니다. 프로젝트 ID 문자열과는 다른 값입니다.
-8. 앱 설정 창에 OAuth Client ID, 프로젝트 번호, API Key를 입력합니다.
-
-앱은 `drive.file` 권한만 요청합니다. 사용자가 앱에서 고르거나 앱이 만든 파일만 다룹니다.
+정적 호스팅에는 `dist/` 폴더를 배포합니다. PWA 설치를 위해 운영 주소는 HTTPS여야 합니다.
 
 ## Safari에 설치
 
@@ -64,10 +48,9 @@ Safari에서 앱 주소를 연 뒤 **파일 → Dock에 추가**를 선택합니
 
 ## 개인정보와 주의사항
 
-- 로컬 파일은 서버로 업로드하지 않습니다. Google Drive 버튼을 사용한 파일만 사용자의 Drive와 통신합니다.
+- 선택한 파일은 서버로 업로드하지 않으며 현재 기기의 브라우저 안에서만 처리합니다.
 - 변환 결과를 GoodNotes에서 확인하기 전까지 원본 `.goodnotes` 파일을 보관하세요.
 - 큰 문서는 iPad 모델과 여유 저장공간에 따라 분석·압축에 수 분이 걸릴 수 있습니다.
-- Google Drive 연동은 운영 도메인용 OAuth Client ID와 API Key가 있어야 실제 로그인 검증이 가능합니다.
 
 ## 실파일 검증 기록
 

@@ -1,7 +1,7 @@
 {
   "name": "GoodNotes Transfer Studio",
   "short_name": "GN Studio",
-  "description": "GoodNotes 필기 이전, PDF 합치기, Google Drive 연동을 기기에서 처리합니다.",
+  "description": "GoodNotes 필기 이전과 PDF 합치기를 현재 기기에서 안전하게 처리합니다.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#07101f",

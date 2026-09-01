@@ -5,7 +5,6 @@ import { PdfWorkspace, type PdfPageItem, type PdfSource } from "./pdf/composer";
 import { renderThumbnail, releasePdfPreviews } from "./pdf/thumbnail";
 import { PageBoard, type BoardPage } from "./ui/page-board";
 import { saveFile } from "./lib/save-file";
-import { GoogleDriveClient } from "./drive/google-drive";
 import { inspectGoodNotes, type GoodNotesInspection } from "./goodnotes/archive";
 import { fingerprintPdf, matchFingerprints, type MatchResult } from "./pdf/page-match";
 import type { PageFingerprint, PagePair } from "./pdf/page-match";
@@ -16,11 +15,11 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="app-header">
     <div class="brand"><span class="brand-mark">GN</span><div><strong>GoodNotes Transfer Studio</strong><small>기기에서 안전하게 처리</small></div></div>
-    <div class="header-actions"><button id="installButton" class="quiet" hidden>앱 설치</button><button id="driveSettingsButton" class="quiet">Google Drive 설정</button></div>
+    <div class="header-actions"><button id="installButton" class="quiet" hidden>앱 설치</button></div>
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 3</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 4</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -35,7 +34,7 @@ app.innerHTML = `
         <label class="file-card"><span class="file-title-row"><span class="file-number">1</span><strong>기존 GoodNotes 문서</strong></span><small>필기해 둔 GoodNotes 5·6 문서를 선택하세요.</small><span id="goodnotesName" class="file-choice">.goodnotes 선택</span><input id="goodnotesInput" type="file" accept=".goodnotes" /></label>
         <label class="file-card"><span class="file-title-row"><span class="file-number">2</span><strong>수정된 강의록 PDF</strong></span><small>새로 배포된 수정 강의록 PDF를 선택하세요.</small><span id="revisedName" class="file-choice">PDF 선택</span><input id="revisedInput" type="file" accept="application/pdf,.pdf" /></label>
       </div>
-      <div class="row-actions transfer-actions"><button id="analyzeTransferButton" class="primary" disabled>페이지 비교하기</button><button id="transferDriveButton" class="secondary">Google Drive에서 선택</button></div>
+      <div class="row-actions transfer-actions"><button id="analyzeTransferButton" class="primary" disabled>페이지 비교하기</button></div>
       <p class="privacy-note">🔒 파일은 서버에 업로드하지 않고 현재 기기 안에서 분석·변환합니다. 원본 파일은 직접 삭제되지 않습니다.</p>
       <div id="transferStatus" class="status" aria-live="polite"></div>
       <section id="transferResult" class="result" hidden>
@@ -54,29 +53,29 @@ app.innerHTML = `
           <div class="map-help">손잡이 <b>⠿</b>를 잡고 드래그하세요. iPad에서는 손잡이를 잠깐 누른 뒤 이동하면 됩니다.</div>
           <div id="transferPageBoard" class="page-board"></div>
         </details>
-        <div class="row-actions"><button id="createGoodnotesButton" class="primary" disabled>기기에 GoodNotes 저장</button><button id="createGoodnotesDriveButton" class="secondary" disabled>Google Drive에 저장</button></div>
+        <div class="row-actions"><button id="createGoodnotesButton" class="primary" disabled>기기에 GoodNotes 저장</button></div>
       </section>
     </section>
 
     <section id="mergePanel" class="panel">
       <div class="panel-heading"><div><span class="step-label">PDF COMPOSER</span><h2>여러 PDF에서 필요한 페이지 합치기</h2></div></div>
       <label class="merge-drop"><strong>PDF 추가</strong><small>여러 파일을 한 번에 선택할 수 있습니다.</small><input id="mergeInput" type="file" accept="application/pdf,.pdf" multiple /></label>
-      <div class="row-actions"><button id="mergeDriveButton" class="secondary">Google Drive에서 추가</button><button id="clearMergeButton" class="quiet">모두 비우기</button></div>
+      <div class="row-actions"><button id="clearMergeButton" class="quiet">모두 비우기</button></div>
       <div id="mergeStatus" class="status" aria-live="polite"></div>
       <section id="mergeWorkspace" hidden>
         <div class="board-toolbar"><div><strong id="mergeCount">0쪽</strong><small>페이지를 눌러 포함·제외하고, ⠿ 손잡이로 순서를 바꾸세요.</small></div><input id="mergeOutputName" value="합친-강의록.pdf" aria-label="저장할 PDF 이름" /></div>
         <div id="mergePageBoard" class="page-board"></div>
-        <div class="row-actions sticky-actions"><button id="mergeSaveButton" class="primary">기기에 PDF 저장</button><button id="mergeDriveSaveButton" class="secondary">Google Drive에 저장</button></div>
+        <div class="row-actions sticky-actions"><button id="mergeSaveButton" class="primary">기기에 PDF 저장</button></div>
       </section>
     </section>
 
     <section class="guide" aria-labelledby="guideTitle">
       <div class="guide-heading"><span class="step-label">HOW TO USE</span><h2 id="guideTitle">처음 사용하시나요?</h2><p>GoodNotes에서 필기하던 강의록을 수정 PDF로 옮기는 과정은 네 단계면 됩니다.</p></div>
       <div class="guide-grid">
-        <article><span>1</span><strong>파일 선택</strong><p>기존 .goodnotes 문서와 수정된 강의록 PDF를 기기 또는 Google Drive에서 선택합니다.</p></article>
+        <article><span>1</span><strong>파일 선택</strong><p>기존 .goodnotes 문서와 수정된 강의록 PDF를 Mac 또는 iPad의 파일 앱에서 선택합니다.</p></article>
         <article><span>2</span><strong>페이지 비교</strong><p>본문과 이미지를 기준으로 페이지를 자동 매칭합니다. 거리 0.25 미만은 같은 페이지로 자동 처리합니다.</p></article>
         <article><span>3</span><strong>결과 확인</strong><p>애매한 페이지만 확인하고, 원하면 전체 페이지 구성표를 열어 ⠿ 손잡이로 순서를 바꿉니다.</p></article>
-        <article><span>4</span><strong>GoodNotes 저장</strong><p>확인한 결과를 기기나 Google Drive에 저장한 뒤 GoodNotes에서 새 문서로 불러옵니다.</p></article>
+        <article><span>4</span><strong>GoodNotes 저장</strong><p>확인한 결과를 기기에 저장한 뒤 GoodNotes에서 새 문서로 불러옵니다.</p></article>
       </div>
       <div class="guide-extra">
         <div><strong>PDF 합치기</strong><p>상단의 PDF 합치기 탭에서 여러 PDF를 추가하고, 페이지를 제외하거나 드래그해 순서를 바꾼 뒤 하나로 저장하세요.</p></div>
@@ -86,21 +85,10 @@ app.innerHTML = `
     </section>
   </main>
 
-  <dialog id="driveDialog">
-    <form method="dialog" class="dialog-card">
-      <div class="dialog-head"><div><strong>Google Drive 연결 설정</strong><small>Google Cloud에서 발급한 웹 앱 키를 이 기기에만 저장합니다.</small></div><button value="cancel" class="icon-button" aria-label="닫기">✕</button></div>
-      <label>OAuth Client ID<input id="googleClientId" autocomplete="off" placeholder="000000000000-….apps.googleusercontent.com" /></label>
-      <label>Cloud 프로젝트 번호<input id="googleProjectNumber" inputmode="numeric" autocomplete="off" placeholder="123456789012" /></label>
-      <label>Google Picker API Key<input id="googleApiKey" autocomplete="off" placeholder="AIza…" /></label>
-      <p class="dialog-help">승인된 JavaScript 원본에 이 앱의 주소를 등록해야 합니다. 키는 브라우저의 로컬 저장소에만 보관됩니다.</p>
-      <button id="saveDriveSettings" value="default" class="primary">저장</button>
-    </form>
-  </dialog>
 `;
 
 const mergeWorkspace = new PdfWorkspace();
 const revisedWorkspace = new PdfWorkspace();
-const drive = new GoogleDriveClient();
 let mergeBoard: PageBoard | null = null;
 let transferBoard: PageBoard | null = null;
 let goodnotesFile: File | null = null;
@@ -134,19 +122,6 @@ window.addEventListener("beforeinstallprompt", (event) => {
   byId<HTMLButtonElement>("installButton").hidden = false;
 });
 byId("installButton").addEventListener("click", async () => pendingInstall?.prompt());
-
-const driveDialog = byId<HTMLDialogElement>("driveDialog");
-byId("driveSettingsButton").addEventListener("click", () => {
-  byId<HTMLInputElement>("googleClientId").value = drive.config.clientId;
-  byId<HTMLInputElement>("googleProjectNumber").value = drive.config.projectNumber;
-  byId<HTMLInputElement>("googleApiKey").value = drive.config.apiKey;
-  driveDialog.showModal();
-});
-byId("saveDriveSettings").addEventListener("click", () => drive.saveConfig({
-  clientId: byId<HTMLInputElement>("googleClientId").value.trim(),
-  projectNumber: byId<HTMLInputElement>("googleProjectNumber").value.trim(),
-  apiKey: byId<HTMLInputElement>("googleApiKey").value.trim(),
-}));
 
 byId<HTMLInputElement>("goodnotesInput").addEventListener("change", (event) => {
   goodnotesFile = (event.target as HTMLInputElement).files?.[0] ?? null;
@@ -275,7 +250,6 @@ function syncCreateButtons(): void {
   const ready = Boolean(goodnotesFile && inspection && transferMatch && targetFingerprints.length
     && reviewPairs.every((pair) => reviewDecisions.has(reviewKey(pair))));
   byId<HTMLButtonElement>("createGoodnotesButton").disabled = !ready;
-  byId<HTMLButtonElement>("createGoodnotesDriveButton").disabled = !ready;
 }
 
 byId<HTMLDetailsElement>("transferMapDetails").addEventListener("toggle", (event) => {
@@ -331,14 +305,6 @@ byId("createGoodnotesButton").addEventListener("click", async () => {
   status("transferStatus", "페이지 순서와 기존 필기를 반영해 GoodNotes 문서를 만드는 중입니다…", "working");
   try { const file = await createTransferredFile(); await saveFile(file, file.name); }
   catch (error) { status("transferStatus", error instanceof Error ? error.message : "GoodNotes 변환에 실패했습니다.", "error"); }
-  finally { syncCreateButtons(); }
-});
-
-byId("createGoodnotesDriveButton").addEventListener("click", async () => {
-  syncCreateButtons();
-  status("transferStatus", "GoodNotes 문서를 만든 뒤 Google Drive에 저장하고 있습니다…", "working");
-  try { const file = await createTransferredFile(); await drive.upload(file); status("transferStatus", `${file.name}을 Google Drive에 저장했습니다.`, "success"); }
-  catch (error) { status("transferStatus", error instanceof Error ? error.message : "Google Drive 저장에 실패했습니다.", "error"); }
   finally { syncCreateButtons(); }
 });
 
@@ -402,31 +368,6 @@ byId("mergeSaveButton").addEventListener("click", async () => {
     await saveFile(file, file.name);
     status("mergeStatus", "PDF를 만들었습니다.", "success");
   } catch (error) { status("mergeStatus", error instanceof Error ? error.message : "PDF 저장에 실패했습니다.", "error"); }
-});
-
-byId("mergeDriveSaveButton").addEventListener("click", async () => {
-  status("mergeStatus", "PDF를 만든 뒤 Google Drive에 저장하고 있습니다…", "working");
-  try {
-    const file = await createMergedFile();
-    await drive.upload(file);
-    status("mergeStatus", `${file.name}을 Google Drive에 저장했습니다.`, "success");
-  } catch (error) { status("mergeStatus", error instanceof Error ? error.message : "Drive 저장에 실패했습니다.", "error"); }
-});
-
-byId("mergeDriveButton").addEventListener("click", async () => {
-  try { await addMergeFiles((await drive.pickFiles()).filter((file) => file.name.toLowerCase().endsWith(".pdf"))); }
-  catch (error) { if ((error as DOMException).name !== "AbortError") status("mergeStatus", (error as Error).message, "error"); }
-});
-
-byId("transferDriveButton").addEventListener("click", async () => {
-  try {
-    const files = await drive.pickFiles();
-    goodnotesFile = files.find((file) => file.name.toLowerCase().endsWith(".goodnotes")) ?? goodnotesFile;
-    revisedFile = files.find((file) => file.name.toLowerCase().endsWith(".pdf")) ?? revisedFile;
-    byId("goodnotesName").textContent = goodnotesFile?.name ?? ".goodnotes 선택";
-    byId("revisedName").textContent = revisedFile?.name ?? "PDF 선택";
-    syncTransferReady();
-  } catch (error) { if ((error as DOMException).name !== "AbortError") status("transferStatus", (error as Error).message, "error"); }
 });
 
 if ("serviceWorker" in navigator) window.addEventListener("load", () => void navigator.serviceWorker.register("./sw.js"));

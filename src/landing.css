@@ -40,7 +40,7 @@ main { width: min(1160px, calc(100% - 32px)); padding-bottom: 72px; }
   font-size: 16px; font-weight: 900; text-align: center; overflow-wrap: anywhere;
 }
 .file-card input { z-index: 2; cursor: pointer; }
-.transfer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin-top: 20px; }
+.transfer-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 20px; }
 .transfer-actions button { min-height: 58px; }
 .transfer-actions .primary { font-size: 17px; font-weight: 900; }
 .privacy-note { margin: 18px 2px 0; color: #aab3c2; font-size: 13px; line-height: 1.6; }
