@@ -1,4 +1,4 @@
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { getDocument, GlobalWorkerOptions, OPS, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -75,6 +75,11 @@ async function destroyPdfDocumentSafely(document: PDFDocumentProxy): Promise<voi
 
 async function fingerprintPage(document: PDFDocumentProxy, index: number): Promise<PageFingerprint> {
   const page = await document.getPage(index + 1);
+  // Read the PDF's own text drawing commands before touching a canvas. Unlike
+  // raster pixels, these glyphs do not change with Safari's colour management,
+  // font rasterizer, or image interpolation. This keeps Mac and iPad matching
+  // deterministic for text-bearing lecture slides.
+  const content = await extractPageText(page);
   const original = page.getViewport({ scale: 1 });
   const scale = Math.min(2, 180 / Math.max(original.width, original.height));
   const viewport = page.getViewport({ scale });
@@ -109,13 +114,39 @@ async function fingerprintPage(document: PDFDocumentProxy, index: number): Promi
   // Release the GPU-backed canvas before text extraction and the next page.
   canvas.width = 1;
   canvas.height = 1;
-  let content = "";
-  try {
-    const textContent = await page.getTextContent();
-    content = normalizeText(textContent.items.map((item) => "str" in item ? item.str : "").join(" "));
-  } catch { /* Image-only pages intentionally have no text fingerprint. */ }
   page.cleanup();
   return { index, ...visual, text: content };
+}
+
+async function extractPageText(page: PDFPageProxy): Promise<string> {
+  try {
+    const operators = await page.getOperatorList();
+    let raw = "";
+    const appendGlyphs = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        for (const item of value) appendGlyphs(item);
+        return;
+      }
+      if (value && typeof value === "object" && "unicode" in value) {
+        const unicode = (value as { unicode?: unknown }).unicode;
+        if (typeof unicode === "string") raw += unicode;
+      }
+    };
+    const textOperators = new Set<number>([
+      OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText,
+    ]);
+    for (let index = 0; index < operators.fnArray.length; index++) {
+      if (textOperators.has(operators.fnArray[index]!)) appendGlyphs(operators.argsArray[index]);
+    }
+    const operatorText = normalizeText(raw);
+    if (operatorText.replaceAll(" ", "").length >= 16) return operatorText;
+  } catch { /* Fall through to the higher-level text extractor. */ }
+  try {
+    const textContent = await page.getTextContent();
+    return normalizeText(textContent.items.map((item) => "str" in item ? item.str : "").join(" "));
+  } catch {
+    return ""; // Image-only pages intentionally have no text fingerprint.
+  }
 }
 
 function findInkBox(gray: Uint8Array, width: number, height: number) {
@@ -182,7 +213,7 @@ interface TextFeatures { usable: boolean; tokens: Set<string>; grams: Set<string
 function prepareText(value: string): TextFeatures {
   const words = value.split(" ").filter(Boolean);
   const compact = words.join("");
-  if (compact.length < 16 || words.length < 3) return { usable: false, tokens: new Set(), grams: new Set() };
+  if (compact.length < 16) return { usable: false, tokens: new Set(), grams: new Set() };
   const grams = new Set<string>();
   for (let index = 0; index < compact.length - 2; index++) grams.add(compact.slice(index, index + 3));
   return { usable: true, tokens: new Set(words), grams };
@@ -190,7 +221,10 @@ function prepareText(value: string): TextFeatures {
 
 function textSimilarityFromFeatures(left: TextFeatures, right: TextFeatures): number | null {
   if (!left.usable || !right.usable) return null;
-  return 0.6 * dice(left.tokens, right.tokens) + 0.4 * dice(left.grams, right.grams);
+  // Character trigrams survive differences in how PDF producers split a line
+  // into individual text-show operations. Token boundaries are only a small
+  // supporting signal because they can differ between otherwise identical PDFs.
+  return 0.2 * dice(left.tokens, right.tokens) + 0.8 * dice(left.grams, right.grams);
 }
 
 export function fingerprintDistance(left: PageFingerprint, right: PageFingerprint): number {
@@ -218,7 +252,7 @@ function fingerprintDistancePrepared(
   const similarity = textSimilarityFromFeatures(leftText, rightText);
   if (similarity == null) return visual;
   const hybrid = 0.55 * Math.min(visual, 1.2) + 0.60 * (1 - similarity);
-  return similarity >= 0.82 ? Math.min(hybrid, 1.5 * (1 - similarity)) : hybrid;
+  return similarity >= 0.78 ? Math.min(hybrid, 1.5 * (1 - similarity)) : hybrid;
 }
 
 export function matchFingerprints(source: PageFingerprint[], target: PageFingerprint[]): MatchResult {
