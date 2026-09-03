@@ -1,7 +1,5 @@
-import { getDocument, GlobalWorkerOptions, OPS, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
-import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
-
-GlobalWorkerOptions.workerSrc = workerUrl;
+import { OPS, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { openPdfDocument } from "./pdfjs";
 
 const GRID = 16;
 const GAP_COST = 0.35;
@@ -41,7 +39,7 @@ export interface PageAlignment {
 export type ProgressCallback = (message: string, completed: number, total: number) => void;
 
 export async function fingerprintPdf(bytes: Uint8Array, onProgress?: ProgressCallback, label = "PDF"): Promise<PageFingerprint[]> {
-  const task = getDocument({ data: bytes.slice() });
+  const task = openPdfDocument(bytes);
   const document = await task.promise;
   const output: PageFingerprint[] = [];
   try {

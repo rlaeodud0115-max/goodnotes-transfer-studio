@@ -32,9 +32,11 @@
 .matching-rule strong { display: block; margin-bottom: 6px; }
 .matching-rule p { margin: 0; color: #b6c5dc; line-height: 1.55; }
 .result > .transfer-reviews,
-.result > .page-map-details,
-.result > .row-actions { margin-left: 24px; margin-right: 24px; }
-.result > .row-actions { margin-bottom: 24px; }
+.result > .page-map-details { margin-left: 24px; margin-right: 24px; }
+.transfer-save-row { display: flex; align-items: end; justify-content: flex-end; gap: 12px; margin: 18px 24px 24px; }
+.transfer-save-row label { display: grid; gap: 7px; width: min(420px, 100%); color: var(--muted); font-size: 12px; font-weight: 800; }
+.transfer-save-row input { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 11px; background: #0b1626; color: #fff; padding: 0 13px; }
+.transfer-save-row input:focus { border-color: var(--blue); outline: 2px solid color-mix(in srgb, var(--blue) 25%, transparent); }
 .section-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .section-heading small { color: var(--muted); }
 #transferReviews { display: grid; gap: 12px; }
@@ -59,9 +61,9 @@
   .result > .metrics strong { font-size: 24px; }
   .matching-rule { margin: 15px 14px 2px; padding: 15px; font-size: 13px; }
   .result > .transfer-reviews,
-  .result > .page-map-details,
-  .result > .row-actions { margin-left: 14px; margin-right: 14px; }
-  .result > .row-actions { margin-bottom: 14px; }
+  .result > .page-map-details { margin-left: 14px; margin-right: 14px; }
+  .transfer-save-row { align-items: stretch; flex-direction: column; margin: 16px 14px 14px; }
+  .transfer-save-row label, .transfer-save-row button { width: 100%; }
   .review-images img { height: 190px; }
   .review-title { align-items: flex-start; }
 }

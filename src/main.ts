@@ -5,6 +5,7 @@ import { PdfWorkspace, type PdfPageItem, type PdfSource } from "./pdf/composer";
 import { renderThumbnail, releasePdfPreviews } from "./pdf/thumbnail";
 import { PageBoard, type BoardPage } from "./ui/page-board";
 import { saveFile } from "./lib/save-file";
+import { normalizeGoodNotesOutputName, suggestGoodNotesOutputName } from "./lib/file-name";
 import { inspectGoodNotes, type GoodNotesInspection } from "./goodnotes/archive";
 import { fingerprintPdf, matchFingerprintsAsync, type MatchResult } from "./pdf/page-match";
 import type { PageFingerprint, PagePair } from "./pdf/page-match";
@@ -19,7 +20,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio Beta 11</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Transfer Studio v2</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -58,7 +59,10 @@ app.innerHTML = `
           <div class="map-help">손잡이 <b>⠿</b>를 잡고 드래그하세요. iPad에서는 손잡이를 잠깐 누른 뒤 이동하면 됩니다.</div>
           <div id="transferPageBoard" class="page-board"></div>
         </details>
-        <div class="row-actions"><button id="createGoodnotesButton" class="primary" disabled>기기에 GoodNotes 저장</button></div>
+        <div class="transfer-save-row">
+          <label for="transferOutputName"><span>새 파일 이름</span><input id="transferOutputName" value="변환된-GoodNotes.goodnotes" autocomplete="off" spellcheck="false" /></label>
+          <button id="createGoodnotesButton" class="primary" disabled>기기에 GoodNotes 저장</button>
+        </div>
       </section>
     </section>
 
@@ -133,6 +137,9 @@ byId("installButton").addEventListener("click", async () => pendingInstall?.prom
 byId<HTMLInputElement>("goodnotesInput").addEventListener("change", async (event) => {
   goodnotesFile = (event.target as HTMLInputElement).files?.[0] ?? null;
   byId("goodnotesName").textContent = goodnotesFile?.name ?? ".goodnotes 선택";
+  byId<HTMLInputElement>("transferOutputName").value = goodnotesFile
+    ? suggestGoodNotesOutputName(goodnotesFile.name)
+    : "변환된-GoodNotes.goodnotes";
   await resetTransferAnalysis();
   syncTransferReady();
 });
@@ -355,9 +362,13 @@ async function createTransferredFile(): Promise<File> {
     sourceFingerprints,
     targetFingerprints,
   });
-  const stem = goodnotesFile.name.replace(/\.goodnotes$/i, "");
+  const outputName = normalizeGoodNotesOutputName(
+    byId<HTMLInputElement>("transferOutputName").value,
+    goodnotesFile.name,
+  );
+  byId<HTMLInputElement>("transferOutputName").value = outputName;
   status("transferStatus", `완료 · 최종 활성 ${result.finalActivePages}장 · 추가 ${result.pagesAdded}장 · 삭제 ${result.pagesDeleted}장 · 맨 뒤 보관 ${result.pagesKeptAtEnd}장`, "success");
-  return new File([result.bytes.buffer as ArrayBuffer], `${stem}_transferred.goodnotes`, { type: "application/octet-stream" });
+  return new File([result.bytes.buffer as ArrayBuffer], outputName, { type: "application/octet-stream" });
 }
 
 byId("createGoodnotesButton").addEventListener("click", async () => {

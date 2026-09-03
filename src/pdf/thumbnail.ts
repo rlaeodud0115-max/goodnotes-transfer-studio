@@ -1,15 +1,12 @@
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
-import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { PdfSource } from "./composer";
+import { openPdfDocument, type OpenPdfDocumentTask } from "./pdfjs";
 
-GlobalWorkerOptions.workerSrc = workerUrl;
-
-const documents = new Map<string, ReturnType<typeof getDocument>["promise"]>();
+const documents = new Map<string, OpenPdfDocumentTask["promise"]>();
 
 async function open(source: PdfSource) {
   let pending = documents.get(source.id);
   if (!pending) {
-    pending = getDocument({ data: source.bytes.slice() }).promise;
+    pending = openPdfDocument(source.bytes).promise;
     documents.set(source.id, pending);
   }
   return pending;
