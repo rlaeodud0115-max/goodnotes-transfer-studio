@@ -20,7 +20,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3.1</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>

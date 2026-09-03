@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
 import { buildNormalizedPdf } from "../src/goodnotes/background";
 
 async function pdfBytes(sizes: Array<[number, number]>): Promise<Uint8Array> {
@@ -25,5 +25,10 @@ describe("GoodNotes revised background", () => {
       { width: 720, height: 540 },
       { width: 612, height: 792 },
     ]);
+
+    const resources = output.getPage(0).node.Resources();
+    const xObjects = resources?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+    const resourceNames = xObjects?.keys().map((name) => name.asString()) ?? [];
+    expect(resourceNames.some((name) => name.includes("EmbeddedPdfPage"))).toBe(false);
   });
 });
