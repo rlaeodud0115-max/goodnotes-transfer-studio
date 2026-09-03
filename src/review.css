@@ -40,6 +40,10 @@
 .section-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .section-heading small { color: var(--muted); }
 #transferReviews { display: grid; gap: 12px; }
+#deletedReviews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.deleted-reviews .section-heading > span strong,
+.deleted-reviews .section-heading > span small { display: block; }
+.deleted-reviews .section-heading > span small { margin-top: 5px; color: var(--muted); }
 .transfer-review-card { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #0c1728; }
 .review-title { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; }
 .review-title span { color: var(--amber); font-size: 12px; font-weight: 900; }
@@ -50,6 +54,10 @@
 .review-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px; }
 .review-actions button.selected { outline: 2px solid var(--green); }
 .review-actions button.danger { outline-color: var(--red); color: var(--red); }
+.deleted-review-image { padding: 10px; background: #101c2e; }
+.deleted-review-image small { display: block; min-height: 34px; margin-bottom: 7px; color: var(--muted); line-height: 1.45; }
+.deleted-review-image img { display: block; width: 100%; height: 220px; object-fit: contain; background: #fff; border-radius: 8px; }
+.deleted-review-card .review-actions { flex-wrap: wrap; }
 
 @media (max-width: 640px) {
   .change-summary-head { align-items: flex-start; padding: 19px; }
@@ -66,4 +74,6 @@
   .transfer-save-row label, .transfer-save-row button { width: 100%; }
   .review-images img { height: 190px; }
   .review-title { align-items: flex-start; }
+  #deletedReviews { grid-template-columns: 1fr; }
+  .deleted-review-image img { height: 240px; }
 }

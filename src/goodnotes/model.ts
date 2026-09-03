@@ -83,9 +83,19 @@ export class GoodNotesModel {
     const message = nested(field);
     if (!field || !message) throw new Error("페이지 순서 이벤트를 수정하지 못했습니다.");
     const wrapperNumber = page.reorderRecordIndex != null ? 3 : 4;
-    if (!setOrderKey(first(message, wrapperNumber), orderKey)) {
-      setNested(message, wrapperNumber, { fields: [{ number: 1, wireType: 2, value: utf8(orderKey) }] });
+    const orderField = first(message, wrapperNumber), orderWrapper = nested(orderField);
+    if (orderField && orderWrapper) {
+      setText(orderWrapper, 1, orderKey);
+      setNested(orderWrapper, 2, propertyVersion());
+      orderField.value = encodeMessage(orderWrapper);
+    } else {
+      setNested(message, wrapperNumber, { fields: [
+        { number: 1, wireType: 2, value: utf8(orderKey) },
+        { number: 2, wireType: 2, value: encodeMessage(propertyVersion()) },
+      ] });
     }
+    setText(message, 11, newUuid());
+    setInteger(message, 14, this.nextTimestamp());
     field.value = encodeMessage(message); page.orderKey = orderKey;
   }
 
@@ -97,17 +107,11 @@ export class GoodNotesModel {
       record = cloneMessage(this.deleteEventTemplate);
       const outer = first(record, 1), field = first(record, 56), message = nested(field);
       if (!outer || !field || !message) throw new Error("페이지 삭제 기준 이벤트가 손상되어 있습니다.");
-      outer.value = utf8(page.eventId); setText(message, 2, page.eventId); setText(message, 4, newUuid());
+      outer.value = utf8(page.eventId); setText(message, 2, page.eventId); setNested(message, 3, eventVersionReference()); setText(message, 4, newUuid());
       setText(message, 11, newUuid()); setInteger(message, 14, this.nextTimestamp()); field.value = encodeMessage(message);
     } else {
       if (!this.documentId) throw new Error("문서 ID를 찾지 못해 삭제 이벤트를 만들 수 없습니다.");
-      const versionMeta: WireMessage = { fields: [
-        { number: 1, wireType: 0, value: 1n },
-        { number: 2, wireType: 2, value: encodeMessage({ fields: [
-          { number: 1, wireType: 0, value: 1n },
-          { number: 2, wireType: 0, value: BigInt(randomUint32()) },
-        ] }) },
-      ] };
+      const versionMeta = eventVersionReference();
       const style = randomBytes(8);
       const message: WireMessage = { fields: [
         { number: 1, wireType: 2, value: utf8(this.documentId) },
@@ -223,14 +227,19 @@ export class GoodNotesModel {
     const record = cloneMessage(this.templateEventTemplate), outer = first(record, 1), field = first(record, 2), message = nested(field);
     if (!outer || !field || !message) throw new Error("template 기준 이벤트가 손상되어 있습니다.");
     const templateId = newUuid(); outer.value = utf8(templateId); setText(message, 2, templateId);
-    setText(message, 4, attachmentId); setInteger(message, 5, pdfPage); setText(message, 11, newUuid()); setInteger(message, 16, this.nextTimestamp());
+    const sourceAttachmentId = text(first(message, 4));
+    const sourcePath = sourceAttachmentId ? this.attachmentPaths.get(sourceAttachmentId) : undefined;
+    const requestedPath = this.attachmentPaths.get(attachmentId);
+    const effectiveAttachmentId = sourcePath && sourcePath === requestedPath ? sourceAttachmentId! : attachmentId;
+    setText(message, 4, effectiveAttachmentId); setInteger(message, 5, pdfPage); setText(message, 11, newUuid()); setInteger(message, 16, this.nextTimestamp());
+    for (const number of [12, 13, 17, 19]) renewTemplateVersion(message, number);
     const dimensionField = first(message, 8), dimensions = nested(dimensionField);
     if (dimensionField && dimensions) {
       const scale = sourceScale > 0 ? sourceScale : 1;
       setFloat32(dimensions, 1, width * scale); setFloat32(dimensions, 2, height * scale); dimensionField.value = encodeMessage(dimensions);
     }
     field.value = encodeMessage(message); this.eventRecords.push(record);
-    this.templates.set(uuidKey(templateId), { templateId, attachmentId, pdfPage, recordIndex: this.eventRecords.length - 1 });
+    this.templates.set(uuidKey(templateId), { templateId, attachmentId: effectiveAttachmentId, pdfPage, recordIndex: this.eventRecords.length - 1 });
     return templateId;
   }
 
@@ -243,9 +252,20 @@ export class GoodNotesModel {
     if (!outer || !pageField || !message) throw new Error("페이지 생성 기준 이벤트가 손상되어 있습니다.");
     outer.value = utf8(eventId); setText(message, 2, eventId);
     const wrapperField = first(message, 3), wrapper = nested(wrapperField);
-    if (wrapperField && wrapper) { setText(wrapper, 1, templateId); wrapperField.value = encodeMessage(wrapper); }
-    else setNested(message, 3, { fields: [{ number: 1, wireType: 2, value: utf8(templateId) }] });
-    if (!setOrderKey(first(message, 4), orderKey)) setNested(message, 4, { fields: [{ number: 1, wireType: 2, value: utf8(orderKey) }] });
+    if (wrapperField && wrapper) {
+      setText(wrapper, 1, templateId); setNested(wrapper, 2, propertyVersion()); wrapperField.value = encodeMessage(wrapper);
+    } else setNested(message, 3, { fields: [
+      { number: 1, wireType: 2, value: utf8(templateId) },
+      { number: 2, wireType: 2, value: encodeMessage(propertyVersion()) },
+    ] });
+    const orderField = first(message, 4), orderWrapper = nested(orderField);
+    if (orderField && orderWrapper) {
+      setText(orderWrapper, 1, orderKey); setNested(orderWrapper, 2, propertyVersion()); orderField.value = encodeMessage(orderWrapper);
+    } else setNested(message, 4, { fields: [
+      { number: 1, wireType: 2, value: utf8(orderKey) },
+      { number: 2, wireType: 2, value: encodeMessage(propertyVersion()) },
+    ] });
+    renewPageVersion(message, 17);
     setText(message, 11, newUuid()); setInteger(message, 14, this.nextTimestamp()); pageField.value = encodeMessage(message);
     this.eventRecords.push(record);
     const notePath = `notes/${noteId}`;
@@ -268,15 +288,33 @@ function newPageUuidPair(): [string, string] {
 }
 function randomUint32(): number { const value = new Uint32Array(1); crypto.getRandomValues(value); return value[0] ?? 0; }
 function randomBytes(length: number): Uint8Array { const value = new Uint8Array(length); crypto.getRandomValues(value); return value; }
+function propertyVersion(): WireMessage {
+  return { fields: [
+    { number: 1, wireType: 0, value: 1n },
+    { number: 2, wireType: 0, value: BigInt(randomUint32()) },
+  ] };
+}
+function eventVersionReference(): WireMessage {
+  return { fields: [
+    { number: 1, wireType: 0, value: 1n },
+    { number: 2, wireType: 2, value: encodeMessage(propertyVersion()) },
+  ] };
+}
+function renewTemplateVersion(message: WireMessage, number: number): void {
+  const field = first(message, number), wrapper = nested(field);
+  if (!field || !wrapper) return;
+  setNested(wrapper, 2, propertyVersion()); field.value = encodeMessage(wrapper);
+}
+function renewPageVersion(message: WireMessage, number: number): void {
+  const field = first(message, number), wrapper = nested(field);
+  if (!field || !wrapper) return;
+  setNested(wrapper, 2, propertyVersion()); field.value = encodeMessage(wrapper);
+}
 function utf8(value: string): Uint8Array { return new TextEncoder().encode(value); }
 function cloneMessage(message: WireMessage): WireMessage {
   return { fields: message.fields.map((field): WireField => ({ ...field, value: field.value instanceof Uint8Array ? field.value.slice() : field.value })) };
 }
 function findOrderKey(field: WireField | undefined): string | undefined { return text(first(nested(field), 1)); }
-function setOrderKey(field: WireField | undefined, value: string): boolean {
-  const wrapper = nested(field); if (!field || !wrapper) return false;
-  setText(wrapper, 1, value); field.value = encodeMessage(wrapper); return true;
-}
 function float32(field: WireField | undefined): number {
   return field?.wireType === 5 && field.value instanceof Uint8Array ? new DataView(field.value.buffer, field.value.byteOffset, 4).getFloat32(0, true) : 0;
 }

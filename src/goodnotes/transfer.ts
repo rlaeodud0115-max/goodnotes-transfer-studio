@@ -11,6 +11,7 @@ export interface TransferInput {
   match: MatchResult;
   sourceFingerprints: PageFingerprint[];
   targetFingerprints: PageFingerprint[];
+  keepSourcePages?: number[];
 }
 
 export interface TransferOutput {
@@ -30,17 +31,20 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
   const mainPages = activeBefore.filter((page) => page.attachmentId && mainAttachmentIds.has(page.attachmentId) && page.pdfPage != null);
   if (!mainPages.length) throw new Error("기존 GoodNotes의 활성 PDF 페이지를 찾지 못했습니다.");
   const sourcePageByIndex = new Map<number, ModelPage>();
-  for (const page of mainPages) sourcePageByIndex.set(page.pdfPage! - 1, page);
+  const duplicateMainPages: ModelPage[] = [];
+  for (const page of mainPages) {
+    const sourceIndex = page.pdfPage! - 1, prior = sourcePageByIndex.get(sourceIndex);
+    if (prior) duplicateMainPages.push(prior);
+    sourcePageByIndex.set(sourceIndex, page);
+  }
   const activeSources = new Set(sourcePageByIndex.keys());
   const mapping = new Map([...input.match.mapping].filter(([source]) => activeSources.has(source)));
   const inverse = new Map<number, number>();
   for (const [source, target] of mapping) if (!inverse.has(target)) inverse.set(target, source);
   const finalPosition = new Map(input.targetOrder.map((target, position) => [target, position]));
   const deletedSources = [...activeSources].filter((source) => !mapping.has(source));
-  const keepAtEnd = deletedSources.filter((source) => {
-    const page = sourcePageByIndex.get(source)!;
-    return (model.entries[page.notePath]?.length ?? 0) > 0;
-  });
+  const requestedKeep = new Set(input.keepSourcePages ?? []);
+  const keepAtEnd = deletedSources.filter((source) => requestedKeep.has(source));
   const deleteSources = deletedSources.filter((source) => !keepAtEnd.includes(source));
   const addedTargets = input.targetOrder.filter((target) => !inverse.has(target));
   const alignment = estimateAlignment(input.sourceFingerprints, input.targetFingerprints, input.match);
@@ -55,13 +59,16 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
   for (const [source, target] of mapping) {
     const page = sourcePageByIndex.get(source), position = finalPosition.get(target);
     if (!page || position == null) continue;
-    model.retargetPage(page, mainAttachmentId, position + 1);
+    // Keep each template's original attachment alias. GoodNotes can store several
+    // causal identities for the same PDF path; replacing the alias can trigger
+    // an "Early template reference" recovery even though the bytes are shared.
+    model.retargetPage(page, page.attachmentId ?? mainAttachmentId, position + 1);
     mappedPages.set(position, page);
   }
   for (const source of deletedSources) {
     const page = sourcePageByIndex.get(source), backup = backupPages.get(source);
     if (!page || backup == null) throw new Error("삭제·보관 페이지의 배경 백업을 만들지 못했습니다.");
-    model.retargetPage(page, mainAttachmentId, backup);
+    model.retargetPage(page, page.attachmentId ?? mainAttachmentId, backup);
     if (deleteSources.includes(source)) model.deletePage(page);
   }
 
@@ -84,6 +91,10 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
   }
   const mainSet = new Set(mainPages.map((page) => page.noteId));
   finalSlots.push(...activeBefore.filter((page) => !mainSet.has(page.noteId)));
+  // A GoodNotes document may contain two active sheets over the same PDF page
+  // (commonly an extra blank sheet at the end). It is not a revised-PDF page,
+  // but it must still receive a final order key or GoodNotes can move it first.
+  finalSlots.push(...duplicateMainPages);
   finalSlots.push(...keepAtEnd.map((source) => sourcePageByIndex.get(source)!).filter(Boolean));
   finalSlots.forEach((page, index) => model.setPageOrder(page, orderKey(index)));
 
