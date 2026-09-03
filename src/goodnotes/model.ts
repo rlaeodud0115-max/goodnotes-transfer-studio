@@ -17,6 +17,28 @@ export interface ModelPage {
   deleted: boolean;
 }
 
+export function invalidateAttachmentSearch(
+  entries: Record<string, Uint8Array>,
+  attachmentIds: ReadonlySet<string>,
+): number {
+  const data = entries["index.search.pb"];
+  if (!data || !attachmentIds.size) return 0;
+  const kept: WireMessage[] = [];
+  let removed = 0;
+  for (const record of decodeDelimited(data)) {
+    const id = text(first(record, 1));
+    if (!id || !attachmentIds.has(id)) {
+      kept.push(record);
+      continue;
+    }
+    const path = text(first(record, 2));
+    if (path) delete entries[path];
+    removed++;
+  }
+  entries["index.search.pb"] = encodeDelimited(kept);
+  return removed;
+}
+
 interface TemplateRecord { templateId: string; attachmentId: string; pdfPage: number; recordIndex: number }
 
 export class GoodNotesModel {

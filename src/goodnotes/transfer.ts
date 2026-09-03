@@ -1,5 +1,5 @@
 import { PDFDocument } from "pdf-lib";
-import { GoodNotesModel, type ModelPage } from "./model";
+import { GoodNotesModel, invalidateAttachmentSearch, type ModelPage } from "./model";
 import { estimateAlignment, type MatchResult, type PageFingerprint } from "../pdf/page-match";
 import { buildNormalizedPdf } from "./background";
 
@@ -68,6 +68,12 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
     originalBackground, input.revisedBytes, input.targetOrder, inverse, deletedSources, alignment,
   );
   model.entries[input.backgroundPath] = normalized;
+  // The archive stores extracted PDF words and highlight rectangles separately
+  // from the attachment itself. Once the PDF is replaced those coordinates are
+  // stale, even if the attachment identity is intentionally reused. Remove only
+  // the modified attachment's cache so GoodNotes rebuilds it after import;
+  // handwriting/OCR search entries for note pages remain untouched.
+  invalidateAttachmentSearch(model.entries, mainAttachmentIds);
 
   const originalNotes = new Map(model.pages.map((page) => [page.notePath, model.entries[page.notePath]?.slice()]));
   const mappedPages = new Map<number, ModelPage>();
