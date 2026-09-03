@@ -34,9 +34,24 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
   const duplicateMainPages: ModelPage[] = [];
   for (const page of mainPages) {
     const sourceIndex = page.pdfPage! - 1, prior = sourcePageByIndex.get(sourceIndex);
-    if (prior) duplicateMainPages.push(prior);
-    sourcePageByIndex.set(sourceIndex, page);
+    if (!prior) {
+      sourcePageByIndex.set(sourceIndex, page);
+      continue;
+    }
+    const priorHasNotes = (model.entries[prior.notePath]?.length ?? 0) > 0;
+    const pageHasNotes = (model.entries[page.notePath]?.length ?? 0) > 0;
+    // Prefer the sheet containing notes as the canonical page. A second empty
+    // sheet over the same PDF page is an orphan that GoodNotes may recover at
+    // the beginning of the document unless it is explicitly deleted.
+    if (priorHasNotes && !pageHasNotes) {
+      duplicateMainPages.push(page);
+    } else {
+      duplicateMainPages.push(prior);
+      sourcePageByIndex.set(sourceIndex, page);
+    }
   }
+  const blankDuplicatePages = duplicateMainPages.filter((page) => (model.entries[page.notePath]?.length ?? 0) === 0);
+  const preservedDuplicatePages = duplicateMainPages.filter((page) => !blankDuplicatePages.includes(page));
   const activeSources = new Set(sourcePageByIndex.keys());
   const mapping = new Map([...input.match.mapping].filter(([source]) => activeSources.has(source)));
   const inverse = new Map<number, number>();
@@ -71,6 +86,7 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
     model.retargetPage(page, page.attachmentId ?? mainAttachmentId, backup);
     if (deleteSources.includes(source)) model.deletePage(page);
   }
+  for (const page of blankDuplicatePages) model.deletePage(page);
 
   let templateScale = 1;
   const firstMapped = [...mapping.keys()][0];
@@ -91,10 +107,9 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
   }
   const mainSet = new Set(mainPages.map((page) => page.noteId));
   finalSlots.push(...activeBefore.filter((page) => !mainSet.has(page.noteId)));
-  // A GoodNotes document may contain two active sheets over the same PDF page
-  // (commonly an extra blank sheet at the end). It is not a revised-PDF page,
-  // but it must still receive a final order key or GoodNotes can move it first.
-  finalSlots.push(...duplicateMainPages);
+  // Preserve only note-bearing duplicate sheets. Empty duplicate sheets are
+  // explicitly deleted above so GoodNotes cannot recover one at the front.
+  finalSlots.push(...preservedDuplicatePages);
   finalSlots.push(...keepAtEnd.map((source) => sourcePageByIndex.get(source)!).filter(Boolean));
   finalSlots.forEach((page, index) => model.setPageOrder(page, orderKey(index)));
 
@@ -102,7 +117,7 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
     if (before && !equalBytes(before, model.entries[path])) throw new Error("기존 GoodNotes 필기 데이터가 변경되어 저장을 중단했습니다.");
   }
   const bytes = await model.save();
-  return { bytes, pagesAdded: addedTargets.length, pagesDeleted: deleteSources.length,
+  return { bytes, pagesAdded: addedTargets.length, pagesDeleted: deleteSources.length + blankDuplicatePages.length,
     pagesKeptAtEnd: keepAtEnd.length, finalActivePages: model.activePages.length };
 }
 
