@@ -331,7 +331,7 @@ function renderTransferReviews(): void {
     card.innerHTML = `
       <div class="review-title"><strong>확인 ${index + 1} · 기존 ${pair.sourceIndex! + 1}쪽 ↔ 수정 ${pair.targetIndex! + 1}쪽</strong><span>거리 ${(pair.distance ?? 0).toFixed(3)}</span></div>
       <div class="review-images"><div><small>기존 페이지</small><img alt="기존 ${pair.sourceIndex! + 1}쪽"></div><div><small>수정 페이지</small><img alt="수정 ${pair.targetIndex! + 1}쪽"></div></div>
-      <div class="review-actions"><button type="button" class="secondary ${decision === "same" ? "selected" : ""}" data-value="same">같은 페이지</button><button type="button" class="quiet ${decision === "different" ? "selected danger" : ""}" data-value="different">다른 페이지</button></div>`;
+      <div class="review-actions"><small class="review-action-note">‘같은 페이지’를 누르면 기존 페이지의 필기가 수정 페이지로 옮겨져 대치됩니다.</small><button type="button" class="secondary ${decision === "same" ? "selected" : ""}" data-value="same">같은 페이지</button><button type="button" class="quiet ${decision === "different" ? "selected danger" : ""}" data-value="different">다른 페이지</button></div>`;
     const images = card.querySelectorAll<HTMLImageElement>("img");
     void renderThumbnail(backgroundSource, pair.sourceIndex!).then((value) => { if (images[0]?.isConnected) images[0].src = value; }).catch(() => undefined);
     if (targetSource) void renderThumbnail(targetSource, pair.targetIndex!).then((value) => { if (images[1]?.isConnected) images[1].src = value; }).catch(() => undefined);
