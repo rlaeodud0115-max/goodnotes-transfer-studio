@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requiresPageReview, type ReviewCandidate } from "../src/pdf/review-policy";
+import { availableTargetPages, deletedSourcePages, requiresPageReview, type ReviewCandidate } from "../src/pdf/review-policy";
 import { fingerprintDistance, type PageFingerprint } from "../src/pdf/page-match";
 
 const pair = (distance: number | null): ReviewCandidate => ({
@@ -17,6 +17,18 @@ describe("page review policy", () => {
   it("asks for confirmation from exactly 0.25", () => {
     expect(requiresPageReview(pair(0.25))).toBe(true);
     expect(requiresPageReview(pair(0.8))).toBe(true);
+  });
+});
+
+describe("manual recovery candidates", () => {
+  const mapping = new Map([[0, 0], [2, 3]]);
+
+  it("shows every active source page that is currently unmatched", () => {
+    expect(deletedSourcePages([0, 1, 2, 4], mapping)).toEqual([1, 4]);
+  });
+
+  it("offers only revised pages that are not already matched", () => {
+    expect(availableTargetPages([0, 1, 2, 3, 4], mapping)).toEqual([1, 2, 4]);
   });
 });
 

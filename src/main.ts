@@ -2,14 +2,14 @@ import "./styles.css";
 import "./landing.css";
 import "./review.css";
 import { PdfWorkspace, type PdfPageItem, type PdfSource } from "./pdf/composer";
-import { renderThumbnail, releasePdfPreviews } from "./pdf/thumbnail";
+import { renderReviewPreview, renderThumbnail, releasePdfPreviews } from "./pdf/thumbnail";
 import { PageBoard, type BoardPage } from "./ui/page-board";
 import { saveFile } from "./lib/save-file";
 import { normalizeGoodNotesOutputName, suggestGoodNotesOutputName } from "./lib/file-name";
 import { inspectGoodNotes, type GoodNotesInspection, type GoodNotesPage } from "./goodnotes/archive";
 import { fingerprintPdf, matchFingerprintsAsync, type MatchResult } from "./pdf/page-match";
 import type { PageFingerprint, PagePair } from "./pdf/page-match";
-import { requiresPageReview } from "./pdf/review-policy";
+import { availableTargetPages, deletedSourcePages, requiresPageReview } from "./pdf/review-policy";
 import { transferGoodNotes } from "./goodnotes/transfer";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -20,7 +20,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3.2</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3.3</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -55,7 +55,7 @@ app.innerHTML = `
           <div id="transferReviews"></div>
         </section>
         <section id="deletedReviewsSection" class="transfer-reviews deleted-reviews" hidden>
-          <div class="section-heading"><span><strong>필기가 있는 삭제 후보</strong><small>수정 PDF에서 사라진 페이지입니다. 맨 뒤에 보관할지 삭제할지 선택하세요.</small></span><small id="deletedReviewProgress"></small></div>
+          <div class="section-heading"><span><strong>삭제 예정 페이지</strong><small>그대로 저장하면 자동 삭제됩니다. 새 페이지와 직접 매칭하거나 맨 뒤에 보관할 수도 있습니다.</small></span><small id="deletedReviewProgress"></small></div>
           <div id="deletedReviews"></div>
         </section>
         <details id="transferMapDetails" class="page-map-details">
@@ -87,7 +87,7 @@ app.innerHTML = `
       <div class="guide-grid">
         <article><span>1</span><strong>파일 선택</strong><p>기존 .goodnotes 문서와 수정된 강의록 PDF를 Mac 또는 iPad의 파일 앱에서 선택합니다.</p></article>
         <article><span>2</span><strong>페이지 비교</strong><p>본문과 이미지를 기준으로 페이지를 자동 매칭합니다. 거리 0.25 미만은 같은 페이지로 자동 처리합니다.</p></article>
-        <article><span>3</span><strong>결과 확인</strong><p>애매한 페이지와 필기가 있는 삭제 후보를 확인하고, 원하면 전체 페이지 구성표에서 ⠿ 손잡이로 순서를 바꿉니다.</p></article>
+        <article><span>3</span><strong>결과 확인</strong><p>애매한 페이지와 삭제 예정 페이지를 확인합니다. 삭제 페이지는 새 페이지와 매칭하거나 맨 뒤에 보관할 수 있습니다.</p></article>
         <article><span>4</span><strong>GoodNotes 저장</strong><p>확인한 결과를 기기에 저장한 뒤 GoodNotes에서 새 문서로 불러옵니다.</p></article>
       </div>
       <div class="guide-extra">
@@ -117,6 +117,8 @@ let reviewDecisions = new Map<string, "same" | "different">();
 let deletedPageDecisions = new Map<number, "keep" | "delete">();
 let transferPreviewSourceIds = new Set<string>();
 let transferPreviewSession = 0;
+let reviewPreviewObserver: IntersectionObserver | null = null;
+let reviewPreviewTasks = new WeakMap<HTMLImageElement, () => Promise<string>>();
 let pendingInstall: Event & { prompt(): Promise<void> } | null = null;
 
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -161,6 +163,9 @@ function syncTransferReady(): void {
 }
 
 async function resetTransferAnalysis(): Promise<void> {
+  reviewPreviewObserver?.disconnect();
+  reviewPreviewObserver = null;
+  reviewPreviewTasks = new WeakMap();
   transferBoard?.destroy();
   transferBoard = null;
   byId("transferReviews").replaceChildren();
@@ -192,6 +197,32 @@ function yieldToBrowser(): Promise<void> {
   // A requestAnimationFrame callback runs before paint; continuing from it can
   // still block Safari from drawing the new status. A new task lets it paint.
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function queueReviewPreview(image: HTMLImageElement | undefined, render: () => Promise<string>): void {
+  if (!image) return;
+  reviewPreviewTasks.set(image, render);
+  reviewPreviewObserver ??= new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const target = entry.target as HTMLImageElement;
+      reviewPreviewObserver?.unobserve(target);
+      const task = reviewPreviewTasks.get(target);
+      reviewPreviewTasks.delete(target);
+      if (!task) continue;
+      void task().then((value) => { if (target.isConnected) target.src = value; }).catch(() => {
+        if (target.isConnected) target.alt = `${target.alt} - 미리보기를 만들지 못했습니다`;
+      });
+    }
+  }, { rootMargin: "360px" });
+  reviewPreviewObserver.observe(image);
+}
+
+function clearQueuedReviewPreviews(container: HTMLElement): void {
+  container.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+    reviewPreviewObserver?.unobserve(image);
+    reviewPreviewTasks.delete(image);
+  });
 }
 
 byId("analyzeTransferButton").addEventListener("click", async () => {
@@ -317,6 +348,7 @@ function reviewKey(pair: PagePair): string { return `${pair.sourceIndex}:${pair.
 function renderTransferReviews(): void {
   const section = byId<HTMLElement>("transferReviewsSection"), container = byId("transferReviews");
   section.hidden = !reviewPairs.length;
+  clearQueuedReviewPreviews(container);
   container.replaceChildren();
   const answered = reviewPairs.filter((pair) => reviewDecisions.has(reviewKey(pair))).length;
   byId("reviewProgress").textContent = `${answered} / ${reviewPairs.length} 확인`;
@@ -333,8 +365,8 @@ function renderTransferReviews(): void {
       <div class="review-images"><div><small>기존 페이지</small><img alt="기존 ${pair.sourceIndex! + 1}쪽"></div><div><small>수정 페이지</small><img alt="수정 ${pair.targetIndex! + 1}쪽"></div></div>
       <div class="review-actions"><small class="review-action-note">‘같은 페이지’를 누르면 기존 페이지의 필기가 수정 페이지로 옮겨져 대치됩니다.</small><button type="button" class="secondary ${decision === "same" ? "selected" : ""}" data-value="same">같은 페이지</button><button type="button" class="quiet ${decision === "different" ? "selected danger" : ""}" data-value="different">다른 페이지</button></div>`;
     const images = card.querySelectorAll<HTMLImageElement>("img");
-    void renderThumbnail(backgroundSource, pair.sourceIndex!).then((value) => { if (images[0]?.isConnected) images[0].src = value; }).catch(() => undefined);
-    if (targetSource) void renderThumbnail(targetSource, pair.targetIndex!).then((value) => { if (images[1]?.isConnected) images[1].src = value; }).catch(() => undefined);
+    queueReviewPreview(images[0], () => renderReviewPreview(backgroundSource, pair.sourceIndex!));
+    if (targetSource) queueReviewPreview(images[1], () => renderReviewPreview(targetSource, pair.targetIndex!));
     card.querySelectorAll<HTMLButtonElement>("[data-value]").forEach((button) => button.addEventListener("click", () => {
       const value = button.dataset.value as "same" | "different";
       reviewDecisions.set(key, value);
@@ -350,22 +382,28 @@ function renderTransferReviews(): void {
   }
 }
 
-function deletedNoteCandidates(): number[] {
-  if (!inspection || !transferMatch) return [];
-  const matched = new Set(transferMatch.mapping.keys());
-  return [...activeBackgroundSources()].filter((sourceIndex) => {
-    if (matched.has(sourceIndex)) return false;
-    const page = inspection!.activePages.find((candidate) => candidate.pdfPage === sourceIndex + 1
-      && candidate.attachmentId && inspection!.backgroundAttachmentIds.includes(candidate.attachmentId));
-    return Boolean(page && (inspection!.entries[page.notePath]?.length ?? 0) > 0);
-  }).sort((left, right) => left - right);
+function deletedCandidates(): number[] {
+  if (!transferMatch) return [];
+  return deletedSourcePages(activeBackgroundSources(), transferMatch.mapping);
+}
+
+function addedTargetCandidates(): number[] {
+  if (!transferMatch) return [];
+  return availableTargetPages(transferOrder.map((page) => page.pageIndex), transferMatch.mapping);
+}
+
+function sourceHasNotes(sourceIndex: number): boolean {
+  if (!inspection) return false;
+  return inspection.activePages.some((page) => page.pdfPage === sourceIndex + 1
+    && page.attachmentId && inspection!.backgroundAttachmentIds.includes(page.attachmentId)
+    && (inspection!.entries[page.notePath]?.length ?? 0) > 0);
 }
 
 function refreshTransferSummary(): void {
   const activeSources = activeBackgroundSources(), matchedSources = new Set(transferMatch?.mapping.keys() ?? []);
   const added = [...transferStatuses.values()].filter((value) => value === "added").length;
   const deleted = [...activeSources].filter((sourceIndex) => !matchedSources.has(sourceIndex)).length;
-  const candidates = deletedNoteCandidates();
+  const candidates = deletedCandidates();
   const directReview = reviewPairs.length + candidates.length;
   const kept = candidates.filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep").length;
   const baseFinal = transferOrder.length + extraActivePages().length;
@@ -377,26 +415,69 @@ function refreshTransferSummary(): void {
 
 function renderDeletedReviews(): void {
   const section = byId<HTMLElement>("deletedReviewsSection"), container = byId("deletedReviews");
-  const candidates = deletedNoteCandidates();
+  const candidates = deletedCandidates();
   for (const sourceIndex of [...deletedPageDecisions.keys()]) {
     if (!candidates.includes(sourceIndex)) deletedPageDecisions.delete(sourceIndex);
   }
   section.hidden = !candidates.length;
+  clearQueuedReviewPreviews(container);
   container.replaceChildren();
-  const answered = candidates.filter((sourceIndex) => deletedPageDecisions.has(sourceIndex)).length;
-  byId("deletedReviewProgress").textContent = `${answered} / ${candidates.length} 확인`;
+  const kept = candidates.filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep").length;
+  byId("deletedReviewProgress").textContent = `총 ${candidates.length}장 · 맨 뒤 보관 ${kept}장`;
   if (!inspection) return;
   const backgroundSource = transferBackgroundSource();
   if (!backgroundSource) return;
+  const targetSource = revisedWorkspace.sources.values().next().value;
   for (const [index, sourceIndex] of candidates.entries()) {
     const decision = deletedPageDecisions.get(sourceIndex), card = document.createElement("article");
+    const targetCandidates = addedTargetCandidates();
+    const noteLabel = sourceHasNotes(sourceIndex) ? "필기 있음" : "필기 없음";
     card.className = "transfer-review-card deleted-review-card";
     card.innerHTML = `
-      <div class="review-title"><strong>삭제 후보 ${index + 1} · 기존 ${sourceIndex + 1}쪽</strong><span>필기 있음</span></div>
-      <div class="deleted-review-image"><small>기존 페이지와 필기 데이터는 원본에 그대로 남아 있습니다.</small><img alt="삭제 후보 기존 ${sourceIndex + 1}쪽"></div>
-      <div class="review-actions"><button type="button" class="secondary ${decision === "keep" ? "selected" : ""}" data-value="keep">맨 뒤에 보관</button><button type="button" class="quiet ${decision === "delete" ? "selected danger" : ""}" data-value="delete">삭제</button></div>`;
+      <div class="review-title"><strong>삭제 예정 ${index + 1} · 기존 ${sourceIndex + 1}쪽</strong><span>${noteLabel}</span></div>
+      <div class="deleted-review-image"><small>아무것도 선택하지 않으면 GoodNotes 저장 시 자동으로 삭제됩니다.</small><img alt="삭제 예정 기존 ${sourceIndex + 1}쪽"></div>
+      <div class="deleted-match-row">
+        <select aria-label="기존 ${sourceIndex + 1}쪽과 매칭할 수정 PDF 페이지" ${targetCandidates.length ? "" : "disabled"}>
+          <option value="">새 페이지 선택</option>
+          ${targetCandidates.map((targetIndex) => `<option value="${targetIndex}">수정 PDF ${targetIndex + 1}쪽</option>`).join("")}
+        </select>
+        <button type="button" class="quiet match-page" ${targetCandidates.length ? "" : "disabled"}>선택 페이지와 매칭</button>
+      </div>
+      <div class="deleted-selected-target" hidden><small>선택한 수정 페이지</small><img alt="선택한 수정 페이지 미리보기"></div>
+      <div class="review-actions"><button type="button" class="secondary ${decision === "keep" ? "selected" : ""}" data-value="keep">맨 뒤에 보관</button><button type="button" class="quiet ${decision !== "keep" ? "selected danger" : ""}" data-value="delete">자동 삭제</button></div>`;
     const image = card.querySelector<HTMLImageElement>("img");
-    void renderThumbnail(backgroundSource, sourceIndex).then((value) => { if (image?.isConnected) image.src = value; }).catch(() => undefined);
+    queueReviewPreview(image ?? undefined, () => renderReviewPreview(backgroundSource, sourceIndex));
+    card.querySelector<HTMLSelectElement>("select")?.addEventListener("change", (event) => {
+      const select = event.currentTarget as HTMLSelectElement;
+      const preview = card.querySelector<HTMLElement>(".deleted-selected-target");
+      const targetImage = preview?.querySelector<HTMLImageElement>("img");
+      if (!preview || !targetImage) return;
+      reviewPreviewObserver?.unobserve(targetImage);
+      reviewPreviewTasks.delete(targetImage);
+      targetImage.removeAttribute("src");
+      preview.hidden = !select.value;
+      const targetIndex = Number(select.value);
+      if (select.value && Number.isInteger(targetIndex) && targetSource) {
+        targetImage.alt = `선택한 수정 PDF ${targetIndex + 1}쪽 미리보기`;
+        queueReviewPreview(targetImage, () => renderReviewPreview(targetSource, targetIndex));
+      }
+    });
+    card.querySelector<HTMLButtonElement>(".match-page")?.addEventListener("click", () => {
+      const select = card.querySelector<HTMLSelectElement>("select");
+      if (!select?.value || !transferMatch) return;
+      const targetIndex = Number(select.value);
+      if (!Number.isInteger(targetIndex) || !addedTargetCandidates().includes(targetIndex)) return;
+      transferMatch.mapping.set(sourceIndex, targetIndex);
+      const reviewedPair = reviewPairs.find((pair) => pair.sourceIndex === sourceIndex && pair.targetIndex === targetIndex);
+      if (reviewedPair) reviewDecisions.set(reviewKey(reviewedPair), "same");
+      deletedPageDecisions.delete(sourceIndex);
+      refreshTransferStatuses();
+      renderTransferReviews();
+      renderDeletedReviews();
+      refreshTransferSummary();
+      if (byId<HTMLDetailsElement>("transferMapDetails").open) transferBoard?.render();
+      syncCreateButtons();
+    });
     card.querySelectorAll<HTMLButtonElement>("[data-value]").forEach((button) => button.addEventListener("click", () => {
       deletedPageDecisions.set(sourceIndex, button.dataset.value as "keep" | "delete");
       renderDeletedReviews();
@@ -409,8 +490,7 @@ function renderDeletedReviews(): void {
 
 function syncCreateButtons(): void {
   const ready = Boolean(goodnotesFile && inspection && transferMatch && targetFingerprints.length
-    && reviewPairs.every((pair) => reviewDecisions.has(reviewKey(pair)))
-    && deletedNoteCandidates().every((sourceIndex) => deletedPageDecisions.has(sourceIndex)));
+    && reviewPairs.every((pair) => reviewDecisions.has(reviewKey(pair))));
   byId<HTMLButtonElement>("createGoodnotesButton").disabled = !ready;
 }
 
@@ -468,7 +548,7 @@ async function createTransferredFile(): Promise<File> {
     match: effectiveMatch,
     sourceFingerprints,
     targetFingerprints,
-    keepSourcePages: deletedNoteCandidates().filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep"),
+    keepSourcePages: deletedCandidates().filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep"),
   });
   const outputName = normalizeGoodNotesOutputName(
     byId<HTMLInputElement>("transferOutputName").value,

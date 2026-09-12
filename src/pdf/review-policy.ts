@@ -10,3 +10,13 @@ export function requiresPageReview(pair: ReviewCandidate, threshold = 0.25): boo
     && pair.distance != null
     && pair.distance >= threshold;
 }
+
+export function deletedSourcePages(activeSources: Iterable<number>, mapping: ReadonlyMap<number, number>): number[] {
+  const matched = new Set(mapping.keys());
+  return [...new Set(activeSources)].filter((sourceIndex) => !matched.has(sourceIndex)).sort((left, right) => left - right);
+}
+
+export function availableTargetPages(targetPages: Iterable<number>, mapping: ReadonlyMap<number, number>): number[] {
+  const matched = new Set(mapping.values());
+  return [...new Set(targetPages)].filter((targetIndex) => !matched.has(targetIndex)).sort((left, right) => left - right);
+}

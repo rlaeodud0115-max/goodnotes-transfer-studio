@@ -12,7 +12,7 @@ async function open(source: PdfSource) {
   return pending;
 }
 
-export async function renderThumbnail(source: PdfSource, pageIndex: number, maxWidth = 260): Promise<string> {
+export async function renderThumbnail(source: PdfSource, pageIndex: number, maxWidth = 260, quality = 0.78): Promise<string> {
   const document = await open(source);
   const page = await document.getPage(pageIndex + 1);
   const original = page.getViewport({ scale: 1 });
@@ -22,7 +22,7 @@ export async function renderThumbnail(source: PdfSource, pageIndex: number, maxW
   if (!context) throw new Error("페이지 미리보기 화면을 만들 수 없습니다.");
   try {
     await page.render({ canvas, canvasContext: context, viewport }).promise;
-    return canvas.toDataURL("image/jpeg", 0.78);
+    return canvas.toDataURL("image/jpeg", quality);
   } finally {
     page.cleanup();
     // Safari keeps a canvas' backing store after the element becomes unreachable.
@@ -30,6 +30,11 @@ export async function renderThumbnail(source: PdfSource, pageIndex: number, maxW
     canvas.width = 1;
     canvas.height = 1;
   }
+}
+
+/** Higher-resolution image used only for pages that need a human decision. */
+export function renderReviewPreview(source: PdfSource, pageIndex: number): Promise<string> {
+  return renderThumbnail(source, pageIndex, 900, 0.92);
 }
 
 function documentOwnerCanvas(width: number, height: number): HTMLCanvasElement {
