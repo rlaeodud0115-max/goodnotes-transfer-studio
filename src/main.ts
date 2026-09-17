@@ -9,7 +9,7 @@ import { normalizeGoodNotesOutputName, suggestGoodNotesOutputName } from "./lib/
 import { inspectGoodNotes, type GoodNotesInspection, type GoodNotesPage } from "./goodnotes/archive";
 import { fingerprintPdf, matchFingerprintsAsync, type MatchResult } from "./pdf/page-match";
 import type { PageFingerprint, PagePair } from "./pdf/page-match";
-import { availableTargetPages, deletedSourcePages, requiresPageReview } from "./pdf/review-policy";
+import { availableTargetPages, deletedSourcePages, requiresNoteBearingPageReview, requiresPageReview, reviewableDeletedSourcePages } from "./pdf/review-policy";
 import { transferGoodNotes } from "./goodnotes/transfer";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -20,7 +20,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3.4</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3.5</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -55,7 +55,7 @@ app.innerHTML = `
           <div id="transferReviews"></div>
         </section>
         <section id="deletedReviewsSection" class="transfer-reviews deleted-reviews" hidden>
-          <div class="section-heading"><span><strong>삭제 예정 페이지</strong><small>그대로 저장하면 자동 삭제됩니다. 새 페이지와 직접 매칭하거나 맨 뒤에 보관할 수도 있습니다.</small></span><small id="deletedReviewProgress"></small></div>
+          <div class="section-heading"><span><strong>필기가 있는 삭제 예정 페이지</strong><small>필기가 있는 페이지만 확인합니다. 필기가 없는 페이지는 자동 삭제하고 수정 PDF의 새 페이지를 사용합니다.</small></span><small id="deletedReviewProgress"></small></div>
           <div id="deletedReviews"></div>
         </section>
         <details id="transferMapDetails" class="page-map-details">
@@ -87,7 +87,7 @@ app.innerHTML = `
       <div class="guide-grid">
         <article><span>1</span><strong>파일 선택</strong><p>기존 .goodnotes 문서와 수정된 강의록 PDF를 Mac 또는 iPad의 파일 앱에서 선택합니다.</p></article>
         <article><span>2</span><strong>페이지 비교</strong><p>본문과 이미지를 기준으로 페이지를 자동 매칭합니다. 거리 0.25 미만은 같은 페이지로 자동 처리합니다.</p></article>
-        <article><span>3</span><strong>결과 확인</strong><p>애매한 페이지와 삭제 예정 페이지를 확인합니다. 삭제 페이지는 새 페이지와 매칭하거나 맨 뒤에 보관할 수 있습니다.</p></article>
+        <article><span>3</span><strong>결과 확인</strong><p>필기가 있는 애매한 페이지만 확인합니다. 필기가 없는 삭제 페이지는 자동으로 새 강의록 페이지로 교체합니다.</p></article>
         <article><span>4</span><strong>GoodNotes 저장</strong><p>확인한 결과를 기기에 저장한 뒤 GoodNotes에서 새 문서로 불러옵니다.</p></article>
       </div>
       <div class="guide-extra">
@@ -260,9 +260,16 @@ byId("analyzeTransferButton").addEventListener("click", async () => {
       .filter((page) => page.attachmentId && inspection!.backgroundAttachmentIds.includes(page.attachmentId))
       .flatMap((page) => page.pdfPage == null ? [] : [page.pdfPage - 1]));
     reviewDecisions = new Map();
-    reviewPairs = transferMatch.pairs.filter((pair) => pair.sourceIndex != null
+    const uncertainPairs = transferMatch.pairs.filter((pair) => pair.sourceIndex != null
       && activeSources.has(pair.sourceIndex)
       && requiresPageReview(pair));
+    const noteBearingSources = noteBearingBackgroundSources();
+    reviewPairs = uncertainPairs.filter((pair) => requiresNoteBearingPageReview(pair, noteBearingSources));
+    for (const pair of uncertainPairs) {
+      if (pair.sourceIndex != null && !sourceHasNotes(pair.sourceIndex)) {
+        transferMatch.mapping.delete(pair.sourceIndex);
+      }
+    }
     refreshTransferStatuses(activeSources);
     renderTransferReviews();
     renderDeletedReviews();
@@ -387,23 +394,35 @@ function deletedCandidates(): number[] {
   return deletedSourcePages(activeBackgroundSources(), transferMatch.mapping);
 }
 
+function deletedReviewCandidates(): number[] {
+  return reviewableDeletedSourcePages(deletedCandidates(), noteBearingBackgroundSources());
+}
+
 function addedTargetCandidates(): number[] {
   if (!transferMatch) return [];
   return availableTargetPages(transferOrder.map((page) => page.pageIndex), transferMatch.mapping);
 }
 
 function sourceHasNotes(sourceIndex: number): boolean {
-  if (!inspection) return false;
-  return inspection.activePages.some((page) => page.pdfPage === sourceIndex + 1
-    && page.attachmentId && inspection!.backgroundAttachmentIds.includes(page.attachmentId)
-    && (inspection!.entries[page.notePath]?.length ?? 0) > 0);
+  return noteBearingBackgroundSources().has(sourceIndex);
+}
+
+function noteBearingBackgroundSources(): Set<number> {
+  if (!inspection) return new Set();
+  const backgroundIds = new Set(inspection.backgroundAttachmentIds);
+  return new Set(inspection.activePages
+    .filter((page) => page.pdfPage != null
+      && page.attachmentId
+      && backgroundIds.has(page.attachmentId)
+      && (inspection!.entries[page.notePath]?.length ?? 0) > 0)
+    .map((page) => page.pdfPage! - 1));
 }
 
 function refreshTransferSummary(): void {
   const activeSources = activeBackgroundSources(), matchedSources = new Set(transferMatch?.mapping.keys() ?? []);
   const added = [...transferStatuses.values()].filter((value) => value === "added").length;
   const deleted = [...activeSources].filter((sourceIndex) => !matchedSources.has(sourceIndex)).length;
-  const candidates = deletedCandidates();
+  const candidates = deletedReviewCandidates();
   const directReview = reviewPairs.length + candidates.length;
   const kept = candidates.filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep").length;
   const baseFinal = transferOrder.length + extraActivePages().length;
@@ -415,7 +434,7 @@ function refreshTransferSummary(): void {
 
 function renderDeletedReviews(): void {
   const section = byId<HTMLElement>("deletedReviewsSection"), container = byId("deletedReviews");
-  const candidates = deletedCandidates();
+  const candidates = deletedReviewCandidates();
   for (const sourceIndex of [...deletedPageDecisions.keys()]) {
     if (!candidates.includes(sourceIndex)) deletedPageDecisions.delete(sourceIndex);
   }
@@ -431,10 +450,9 @@ function renderDeletedReviews(): void {
   for (const [index, sourceIndex] of candidates.entries()) {
     const decision = deletedPageDecisions.get(sourceIndex), card = document.createElement("article");
     const targetCandidates = addedTargetCandidates();
-    const noteLabel = sourceHasNotes(sourceIndex) ? "필기 있음" : "필기 없음";
     card.className = "transfer-review-card deleted-review-card";
     card.innerHTML = `
-      <div class="review-title"><strong>삭제 예정 ${index + 1} · 기존 ${sourceIndex + 1}쪽</strong><span>${noteLabel}</span></div>
+      <div class="review-title"><strong>삭제 예정 ${index + 1} · 기존 ${sourceIndex + 1}쪽</strong><span>필기 있음</span></div>
       <div class="deleted-review-image"><small>아무것도 선택하지 않으면 GoodNotes 저장 시 자동으로 삭제됩니다.</small><img alt="삭제 예정 기존 ${sourceIndex + 1}쪽"></div>
       <div class="deleted-match-row">
         <select aria-label="기존 ${sourceIndex + 1}쪽과 매칭할 수정 PDF 페이지" ${targetCandidates.length ? "" : "disabled"}>
@@ -548,7 +566,7 @@ async function createTransferredFile(): Promise<File> {
     match: effectiveMatch,
     sourceFingerprints,
     targetFingerprints,
-    keepSourcePages: deletedCandidates().filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep"),
+    keepSourcePages: deletedReviewCandidates().filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep"),
   });
   const outputName = normalizeGoodNotesOutputName(
     byId<HTMLInputElement>("transferOutputName").value,

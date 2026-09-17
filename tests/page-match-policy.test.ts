@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { availableTargetPages, deletedSourcePages, requiresPageReview, type ReviewCandidate } from "../src/pdf/review-policy";
+import { availableTargetPages, deletedSourcePages, requiresNoteBearingPageReview, requiresPageReview, reviewableDeletedSourcePages, type ReviewCandidate } from "../src/pdf/review-policy";
 import { fingerprintDistance, type PageFingerprint } from "../src/pdf/page-match";
 
 const pair = (distance: number | null): ReviewCandidate => ({
@@ -18,6 +18,11 @@ describe("page review policy", () => {
     expect(requiresPageReview(pair(0.25))).toBe(true);
     expect(requiresPageReview(pair(0.8))).toBe(true);
   });
+
+  it("skips ambiguous matching when the source page has no notes", () => {
+    expect(requiresNoteBearingPageReview(pair(0.4), new Set())).toBe(false);
+    expect(requiresNoteBearingPageReview(pair(0.4), new Set([0]))).toBe(true);
+  });
 });
 
 describe("manual recovery candidates", () => {
@@ -29,6 +34,10 @@ describe("manual recovery candidates", () => {
 
   it("offers only revised pages that are not already matched", () => {
     expect(availableTargetPages([0, 1, 2, 3, 4], mapping)).toEqual([1, 2, 4]);
+  });
+
+  it("asks for manual recovery only when the deleted source page has notes", () => {
+    expect(reviewableDeletedSourcePages([1, 4, 7], new Set([4, 7]))).toEqual([4, 7]);
   });
 });
 

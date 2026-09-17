@@ -1,4 +1,4 @@
-const CACHE = "gn-studio-shell-v20";
+const CACHE = "gn-studio-shell-v21";
 const SHELL = [
   "./",
   "./manifest.webmanifest",
