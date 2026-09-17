@@ -1,5 +1,12 @@
-const CACHE = "gn-studio-shell-v19";
-const SHELL = ["./", "./manifest.webmanifest"];
+const CACHE = "gn-studio-shell-v20";
+const SHELL = [
+  "./",
+  "./manifest.webmanifest",
+  "./pdfjs-cmaps/Adobe-CNS1-UCS2.bcmap",
+  "./pdfjs-cmaps/Adobe-GB1-UCS2.bcmap",
+  "./pdfjs-cmaps/Adobe-Japan1-UCS2.bcmap",
+  "./pdfjs-cmaps/Adobe-Korea1-UCS2.bcmap",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
