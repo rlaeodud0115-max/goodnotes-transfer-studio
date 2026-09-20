@@ -40,7 +40,8 @@
 .section-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .section-heading small { color: var(--muted); }
 #transferReviews { display: grid; gap: 12px; }
-#deletedReviews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+#deletedReviews,
+#separateReviews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .deleted-reviews .section-heading > span strong,
 .deleted-reviews .section-heading > span small { display: block; }
 .deleted-reviews .section-heading > span small { margin-top: 5px; color: var(--muted); }
@@ -84,7 +85,8 @@
   .review-title { align-items: flex-start; }
   .review-actions { flex-wrap: wrap; }
   .review-action-note { flex: 0 0 100%; margin: 0 0 3px; }
-  #deletedReviews { grid-template-columns: 1fr; }
+  #deletedReviews,
+  #separateReviews { grid-template-columns: 1fr; }
   .deleted-review-image img { height: 240px; }
   .deleted-match-row { grid-template-columns: 1fr; }
   .deleted-match-row button { width: 100%; }

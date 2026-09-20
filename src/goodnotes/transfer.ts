@@ -2,6 +2,7 @@ import { PDFDocument } from "pdf-lib";
 import { GoodNotesModel, invalidateAttachmentSearch, type ModelPage } from "./model";
 import { estimateAlignment, type MatchResult, type PageFingerprint } from "../pdf/page-match";
 import { buildNormalizedPdf } from "./background";
+import { classifyExistingPages, placeKeptPagesAtOriginalBoundaries } from "./existing-pages";
 
 export interface TransferInput {
   sourceFile: File;
@@ -12,13 +13,14 @@ export interface TransferInput {
   sourceFingerprints: PageFingerprint[];
   targetFingerprints: PageFingerprint[];
   keepSourcePages?: number[];
+  keepSeparatePageIds?: string[];
 }
 
 export interface TransferOutput {
   bytes: Uint8Array;
   pagesAdded: number;
   pagesDeleted: number;
-  pagesKeptAtEnd: number;
+  pagesKeptInPlace: number;
   finalActivePages: number;
 }
 
@@ -28,30 +30,15 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
   const mainAttachmentId = [...mainAttachmentIds][0];
   if (!mainAttachmentId) throw new Error("기존 GoodNotes 배경 attachment를 찾지 못했습니다.");
   const activeBefore = [...model.activePages];
-  const mainPages = activeBefore.filter((page) => page.attachmentId && mainAttachmentIds.has(page.attachmentId) && page.pdfPage != null);
-  if (!mainPages.length) throw new Error("기존 GoodNotes의 활성 PDF 페이지를 찾지 못했습니다.");
-  const sourcePageByIndex = new Map<number, ModelPage>();
-  const duplicateMainPages: ModelPage[] = [];
-  for (const page of mainPages) {
-    const sourceIndex = page.pdfPage! - 1, prior = sourcePageByIndex.get(sourceIndex);
-    if (!prior) {
-      sourcePageByIndex.set(sourceIndex, page);
-      continue;
-    }
-    const priorHasNotes = (model.entries[prior.notePath]?.length ?? 0) > 0;
-    const pageHasNotes = (model.entries[page.notePath]?.length ?? 0) > 0;
-    // Prefer the sheet containing notes as the canonical page. A second empty
-    // sheet over the same PDF page is an orphan that GoodNotes may recover at
-    // the beginning of the document unless it is explicitly deleted.
-    if (priorHasNotes && !pageHasNotes) {
-      duplicateMainPages.push(page);
-    } else {
-      duplicateMainPages.push(prior);
-      sourcePageByIndex.set(sourceIndex, page);
-    }
-  }
-  const blankDuplicatePages = duplicateMainPages.filter((page) => (model.entries[page.notePath]?.length ?? 0) === 0);
-  const preservedDuplicatePages = duplicateMainPages.filter((page) => !blankDuplicatePages.includes(page));
+  const classified = classifyExistingPages(
+    activeBefore,
+    mainAttachmentIds,
+    (page) => model.entries[page.notePath]?.length ?? 0,
+  );
+  const sourcePageByIndex = classified.canonicalBySource;
+  const blankDuplicatePages = classified.blankDuplicates;
+  const separatePages = classified.separatePages;
+  if (!sourcePageByIndex.size) throw new Error("기존 GoodNotes의 활성 PDF 페이지를 찾지 못했습니다.");
   const activeSources = new Set(sourcePageByIndex.keys());
   const mapping = new Map([...input.match.mapping].filter(([source]) => activeSources.has(source)));
   const inverse = new Map<number, number>();
@@ -59,13 +46,19 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
   const finalPosition = new Map(input.targetOrder.map((target, position) => [target, position]));
   const deletedSources = [...activeSources].filter((source) => !mapping.has(source));
   const requestedKeep = new Set(input.keepSourcePages ?? []);
-  const keepAtEnd = deletedSources.filter((source) => requestedKeep.has(source));
-  const deleteSources = deletedSources.filter((source) => !keepAtEnd.includes(source));
+  const keepInPlaceSources = deletedSources.filter((source) => requestedKeep.has(source));
+  const deleteSources = deletedSources.filter((source) => !keepInPlaceSources.includes(source));
+  const requestedSeparateKeep = new Set(input.keepSeparatePageIds ?? []);
+  const keepSeparatePages = separatePages.filter((page) => requestedSeparateKeep.has(page.noteId));
+  const deleteSeparatePages = separatePages.filter((page) => !requestedSeparateKeep.has(page.noteId));
   const addedTargets = input.targetOrder.filter((target) => !inverse.has(target));
   const alignment = estimateAlignment(input.sourceFingerprints, input.targetFingerprints, input.match);
   const originalBackground = model.entries[input.backgroundPath]!.slice();
+  const separateMainSources = keepSeparatePages.flatMap((page) =>
+    page.attachmentId && mainAttachmentIds.has(page.attachmentId) && page.pdfPage != null ? [page.pdfPage - 1] : []);
+  const backupSources = [...new Set([...deletedSources, ...separateMainSources])];
   const { bytes: normalized, backupPages, pageSizes } = await buildNormalizedPdf(
-    originalBackground, input.revisedBytes, input.targetOrder, inverse, deletedSources, alignment,
+    originalBackground, input.revisedBytes, input.targetOrder, inverse, backupSources, alignment,
   );
   model.entries[input.backgroundPath] = normalized;
   // The archive stores extracted PDF words and highlight rectangles separately
@@ -93,6 +86,16 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
     if (deleteSources.includes(source)) model.deletePage(page);
   }
   for (const page of blankDuplicatePages) model.deletePage(page);
+  for (const page of deleteSeparatePages) model.deletePage(page);
+  // A retained duplicate sheet can still reference the main PDF page. Preserve
+  // that old background in the normalized attachment instead of allowing the
+  // duplicate to turn into the revised PDF's page with the same number.
+  for (const page of keepSeparatePages) {
+    if (!page.attachmentId || !mainAttachmentIds.has(page.attachmentId) || page.pdfPage == null) continue;
+    const backup = backupPages.get(page.pdfPage - 1);
+    if (backup == null) throw new Error("별도 기존 페이지의 배경 백업을 만들지 못했습니다.");
+    model.retargetPage(page, page.attachmentId, backup);
+  }
 
   let templateScale = 1;
   const firstMapped = [...mapping.keys()][0];
@@ -103,28 +106,36 @@ export async function transferGoodNotes(input: TransferInput): Promise<TransferO
     if (page && sourcePdf && sourceSize) templateScale = model.templateScaleForPage(page, sourceSize.width, sourceSize.height);
   }
 
-  const finalSlots: ModelPage[] = [];
+  const targetSlots: ModelPage[] = [];
   for (let position = 0; position < input.targetOrder.length; position++) {
     const mapped = mappedPages.get(position);
-    if (mapped) { finalSlots.push(mapped); continue; }
+    if (mapped) { targetSlots.push(mapped); continue; }
     const size = pageSizes[position];
     if (!size) throw new Error("새 페이지의 크기를 확인하지 못했습니다.");
-    finalSlots.push(model.addPage(mainAttachmentId, position + 1, size.width, size.height, orderKey(position), templateScale));
+    targetSlots.push(model.addPage(mainAttachmentId, position + 1, size.width, size.height, orderKey(position), templateScale));
   }
-  const mainSet = new Set(mainPages.map((page) => page.noteId));
-  finalSlots.push(...activeBefore.filter((page) => !mainSet.has(page.noteId)));
-  // Preserve only note-bearing duplicate sheets. Empty duplicate sheets are
-  // explicitly deleted above so GoodNotes cannot recover one at the front.
-  finalSlots.push(...preservedDuplicatePages);
-  finalSlots.push(...keepAtEnd.map((source) => sourcePageByIndex.get(source)!).filter(Boolean));
+  const keptPages = [
+    ...keepInPlaceSources.map((source) => sourcePageByIndex.get(source)!).filter(Boolean),
+    ...keepSeparatePages,
+  ];
+  const canonicalSourceByPageId = new Map([...sourcePageByIndex].map(([source, page]) => [page.noteId, source]));
+  const finalSlots = placeKeptPagesAtOriginalBoundaries(
+    targetSlots,
+    activeBefore,
+    keptPages,
+    canonicalSourceByPageId,
+    mapping,
+    input.targetOrder,
+  );
   finalSlots.forEach((page, index) => model.setPageOrder(page, orderKey(index)));
 
   for (const [path, before] of originalNotes) {
     if (before && !equalBytes(before, model.entries[path])) throw new Error("기존 GoodNotes 필기 데이터가 변경되어 저장을 중단했습니다.");
   }
   const bytes = await model.save();
-  return { bytes, pagesAdded: addedTargets.length, pagesDeleted: deleteSources.length + blankDuplicatePages.length,
-    pagesKeptAtEnd: keepAtEnd.length, finalActivePages: model.activePages.length };
+  return { bytes, pagesAdded: addedTargets.length,
+    pagesDeleted: deleteSources.length + blankDuplicatePages.length + deleteSeparatePages.length,
+    pagesKeptInPlace: keptPages.length, finalActivePages: model.activePages.length };
 }
 
 function orderKey(index: number): string { return `R${String(index + 1).padStart(10, "0")}`; }

@@ -13,6 +13,8 @@ export interface GoodNotesPage {
 
 export interface GoodNotesInspection {
   entries: Record<string, Uint8Array>;
+  attachmentPaths: Map<string, string>;
+  attachmentPageCounts: Map<string, number>;
   pages: GoodNotesPage[];
   activePages: GoodNotesPage[];
   backgroundPath: string;
@@ -125,6 +127,8 @@ export async function inspectGoodNotes(file: File): Promise<GoodNotesInspection>
   const eventVersion = [...frequency].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 24;
   return {
     entries,
+    attachmentPaths,
+    attachmentPageCounts: new Map([...candidates].map(([path, value]) => [path, value.pageCount])),
     pages,
     activePages: pages.filter((page) => !page.deleted),
     backgroundPath: background[0],

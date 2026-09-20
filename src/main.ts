@@ -11,6 +11,7 @@ import { fingerprintPdf, matchFingerprintsAsync, type MatchResult } from "./pdf/
 import type { PageFingerprint, PagePair } from "./pdf/page-match";
 import { availableTargetPages, deletedSourcePages, requiresNoteBearingPageReview, requiresPageReview, reviewableDeletedSourcePages } from "./pdf/review-policy";
 import { transferGoodNotes } from "./goodnotes/transfer";
+import { classifyExistingPages } from "./goodnotes/existing-pages";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -20,7 +21,7 @@ app.innerHTML = `
   </header>
   <main>
     <section class="hero">
-      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3.5</span>
+      <span class="eyebrow">GoodNotes 5 &amp; 6 · Studio R3.6</span>
       <h1>수정된 강의록에<br>기존 필기를 그대로.</h1>
       <p>페이지를 자동으로 비교하고 새 페이지는 삽입합니다. 기존 필기는 그대로 보존하며, 필요한 경우 전체 페이지 순서도 직접 바꿀 수 있어요.</p>
     </section>
@@ -55,8 +56,12 @@ app.innerHTML = `
           <div id="transferReviews"></div>
         </section>
         <section id="deletedReviewsSection" class="transfer-reviews deleted-reviews" hidden>
-          <div class="section-heading"><span><strong>필기가 있는 삭제 예정 페이지</strong><small>필기가 있는 페이지만 확인합니다. 필기가 없는 페이지는 자동 삭제하고 수정 PDF의 새 페이지를 사용합니다.</small></span><small id="deletedReviewProgress"></small></div>
+          <div class="section-heading"><span><strong>필기가 있는 삭제 예정 페이지</strong><small>필기가 있는 페이지만 확인합니다. 유지하면 원래 앞뒤 페이지 관계에 따라 같은 위치에 들어갑니다.</small></span><small id="deletedReviewProgress"></small></div>
           <div id="deletedReviews"></div>
+        </section>
+        <section id="separateReviewsSection" class="transfer-reviews deleted-reviews" hidden>
+          <div class="section-heading"><span><strong>새 PDF에 없는 기존 추가 페이지</strong><small>기존 GoodNotes에서 따로 만든 페이지입니다. 각 페이지를 삭제하거나 원래 위치에 유지할지 선택하세요.</small></span><small id="separateReviewProgress"></small></div>
+          <div id="separateReviews"></div>
         </section>
         <details id="transferMapDetails" class="page-map-details">
           <summary><span><strong>전체 페이지 구성표</strong><small>원할 때 열어 페이지 순서를 확인·변경하세요.</small></span><span class="summary-action">펼치기</span></summary>
@@ -115,6 +120,7 @@ let targetFingerprints: PageFingerprint[] = [];
 let reviewPairs: PagePair[] = [];
 let reviewDecisions = new Map<string, "same" | "different">();
 let deletedPageDecisions = new Map<number, "keep" | "delete">();
+let separatePageDecisions = new Map<string, "keep" | "delete">();
 let transferPreviewSourceIds = new Set<string>();
 let transferPreviewSession = 0;
 let reviewPreviewObserver: IntersectionObserver | null = null;
@@ -172,6 +178,8 @@ async function resetTransferAnalysis(): Promise<void> {
   byId<HTMLElement>("transferReviewsSection").hidden = true;
   byId("deletedReviews").replaceChildren();
   byId<HTMLElement>("deletedReviewsSection").hidden = true;
+  byId("separateReviews").replaceChildren();
+  byId<HTMLElement>("separateReviewsSection").hidden = true;
   const details = byId<HTMLDetailsElement>("transferMapDetails");
   details.open = false;
   details.querySelector(".summary-action")!.textContent = "펼치기";
@@ -189,6 +197,7 @@ async function resetTransferAnalysis(): Promise<void> {
   reviewPairs = [];
   reviewDecisions = new Map();
   deletedPageDecisions = new Map();
+  separatePageDecisions = new Map();
   transferPreviewSession++;
   status("transferStatus");
 }
@@ -273,6 +282,7 @@ byId("analyzeTransferButton").addEventListener("click", async () => {
     refreshTransferStatuses(activeSources);
     renderTransferReviews();
     renderDeletedReviews();
+    renderSeparateReviews();
     byId("activePages").textContent = `${inspection.activePages.length}장`;
     refreshTransferSummary();
     byId("transferResult").hidden = false;
@@ -300,29 +310,16 @@ function activeBackgroundSources(): Set<number> {
 
 function extraActivePages(): GoodNotesPage[] {
   if (!inspection) return [];
-  const backgroundIds = new Set(inspection.backgroundAttachmentIds), latestByPdfPage = new Map<number, GoodNotesPage>();
-  const extras: GoodNotesPage[] = [];
-  for (const page of inspection.activePages) {
-    if (!page.attachmentId || !backgroundIds.has(page.attachmentId) || page.pdfPage == null) {
-      extras.push(page);
-      continue;
-    }
-    const prior = latestByPdfPage.get(page.pdfPage);
-    if (!prior) {
-      latestByPdfPage.set(page.pdfPage, page);
-      continue;
-    }
-    const priorHasNotes = (inspection.entries[prior.notePath]?.length ?? 0) > 0;
-    const pageHasNotes = (inspection.entries[page.notePath]?.length ?? 0) > 0;
-    if (priorHasNotes && !pageHasNotes) {
-      continue;
-    }
-    // Empty duplicate sheets are removed during conversion. Only a duplicate
-    // that actually contains notes remains as a separate existing page.
-    if (priorHasNotes) extras.push(prior);
-    latestByPdfPage.set(page.pdfPage, page);
-  }
-  return extras;
+  return classifyExistingPages(
+    inspection.activePages,
+    new Set(inspection.backgroundAttachmentIds),
+    (page) => inspection!.entries[page.notePath]?.length ?? 0,
+  ).separatePages;
+}
+
+function separateReviewCandidates(): GoodNotesPage[] {
+  if (!inspection) return [];
+  return extraActivePages().filter((page) => (inspection!.entries[page.notePath]?.length ?? 0) > 0);
 }
 
 function transferBackgroundSource(): PdfSource | null {
@@ -335,6 +332,24 @@ function transferBackgroundSource(): PdfSource | null {
     file: new File([inspection.backgroundBytes.slice().buffer as ArrayBuffer], "background.pdf", { type: "application/pdf" }),
     bytes: inspection.backgroundBytes,
     pageCount: inspection.backgroundPageCount,
+    dimensions: [],
+  };
+}
+
+function existingPageBackgroundSource(page: GoodNotesPage): PdfSource | null {
+  if (!inspection || !page.attachmentId) return null;
+  const path = inspection.attachmentPaths.get(page.attachmentId);
+  const bytes = path ? inspection.entries[path] : undefined;
+  const pageCount = path ? inspection.attachmentPageCounts.get(path) : undefined;
+  if (!path || !bytes || !pageCount) return null;
+  const id = `goodnotes-attachment-${page.attachmentId}-${transferPreviewSession}`;
+  transferPreviewSourceIds.add(id);
+  return {
+    id,
+    name: "기존 GoodNotes 별도 페이지 배경",
+    file: new File([bytes.slice().buffer as ArrayBuffer], "existing-page.pdf", { type: "application/pdf" }),
+    bytes,
+    pageCount,
     dimensions: [],
   };
 }
@@ -421,11 +436,14 @@ function noteBearingBackgroundSources(): Set<number> {
 function refreshTransferSummary(): void {
   const activeSources = activeBackgroundSources(), matchedSources = new Set(transferMatch?.mapping.keys() ?? []);
   const added = [...transferStatuses.values()].filter((value) => value === "added").length;
-  const deleted = [...activeSources].filter((sourceIndex) => !matchedSources.has(sourceIndex)).length;
+  const separatePages = extraActivePages();
+  const deleted = [...activeSources].filter((sourceIndex) => !matchedSources.has(sourceIndex)).length + separatePages.length;
   const candidates = deletedReviewCandidates();
-  const directReview = reviewPairs.length + candidates.length;
-  const kept = candidates.filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep").length;
-  const baseFinal = transferOrder.length + extraActivePages().length;
+  const separateCandidates = separateReviewCandidates();
+  const directReview = reviewPairs.length + candidates.length + separateCandidates.length;
+  const kept = candidates.filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep").length
+    + separateCandidates.filter((page) => separatePageDecisions.get(page.noteId) === "keep").length;
+  const baseFinal = transferOrder.length;
   byId("addedPages").textContent = `${added}장`;
   byId("deletedPages").textContent = `${deleted}장`;
   byId("reviewPages").textContent = `${directReview}장`;
@@ -442,7 +460,7 @@ function renderDeletedReviews(): void {
   clearQueuedReviewPreviews(container);
   container.replaceChildren();
   const kept = candidates.filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep").length;
-  byId("deletedReviewProgress").textContent = `총 ${candidates.length}장 · 맨 뒤 보관 ${kept}장`;
+  byId("deletedReviewProgress").textContent = `총 ${candidates.length}장 · 기존 위치 유지 ${kept}장`;
   if (!inspection) return;
   const backgroundSource = transferBackgroundSource();
   if (!backgroundSource) return;
@@ -462,7 +480,7 @@ function renderDeletedReviews(): void {
         <button type="button" class="quiet match-page" ${targetCandidates.length ? "" : "disabled"}>선택 페이지와 매칭</button>
       </div>
       <div class="deleted-selected-target" hidden><small>선택한 수정 페이지</small><img alt="선택한 수정 페이지 미리보기"></div>
-      <div class="review-actions"><button type="button" class="secondary ${decision === "keep" ? "selected" : ""}" data-value="keep">맨 뒤에 보관</button><button type="button" class="quiet ${decision !== "keep" ? "selected danger" : ""}" data-value="delete">자동 삭제</button></div>`;
+      <div class="review-actions"><button type="button" class="secondary ${decision === "keep" ? "selected" : ""}" data-value="keep">기존 위치에 유지</button><button type="button" class="quiet ${decision !== "keep" ? "selected danger" : ""}" data-value="delete">자동 삭제</button></div>`;
     const image = card.querySelector<HTMLImageElement>("img");
     queueReviewPreview(image ?? undefined, () => renderReviewPreview(backgroundSource, sourceIndex));
     card.querySelector<HTMLSelectElement>("select")?.addEventListener("change", (event) => {
@@ -506,9 +524,52 @@ function renderDeletedReviews(): void {
   }
 }
 
+function renderSeparateReviews(): void {
+  const section = byId<HTMLElement>("separateReviewsSection"), container = byId("separateReviews");
+  const candidates = separateReviewCandidates();
+  const candidateIds = new Set(candidates.map((page) => page.noteId));
+  for (const noteId of [...separatePageDecisions.keys()]) {
+    if (!candidateIds.has(noteId)) separatePageDecisions.delete(noteId);
+  }
+  section.hidden = !candidates.length;
+  clearQueuedReviewPreviews(container);
+  container.replaceChildren();
+  const answered = candidates.filter((page) => separatePageDecisions.has(page.noteId)).length;
+  const kept = candidates.filter((page) => separatePageDecisions.get(page.noteId) === "keep").length;
+  byId("separateReviewProgress").textContent = `${answered} / ${candidates.length} 선택 · 유지 ${kept}장`;
+  if (!inspection) return;
+
+  for (const page of candidates) {
+    const originalPosition = inspection.activePages.findIndex((candidate) => candidate.noteId === page.noteId) + 1;
+    const decision = separatePageDecisions.get(page.noteId);
+    const card = document.createElement("article");
+    card.className = "transfer-review-card deleted-review-card separate-review-card";
+    card.innerHTML = `
+      <div class="review-title"><strong>기존 문서 ${originalPosition}쪽 · 새 PDF에 대응 없음</strong><span>필기 있음</span></div>
+      <div class="deleted-review-image"><small>배경만 미리 표시됩니다. 유지하면 이 페이지의 필기와 별도 배경을 함께 보존합니다.</small><img alt="기존 별도 페이지 ${originalPosition}쪽 배경"></div>
+      <div class="review-actions"><small class="review-action-note">‘기존 위치에 유지’를 누르면 앞뒤 페이지 관계를 기준으로 원래 위치에 삽입됩니다.</small><button type="button" class="secondary ${decision === "keep" ? "selected" : ""}" data-value="keep">기존 위치에 유지</button><button type="button" class="quiet ${decision === "delete" ? "selected danger" : ""}" data-value="delete">삭제</button></div>`;
+    const source = existingPageBackgroundSource(page);
+    const image = card.querySelector<HTMLImageElement>("img");
+    if (source && page.pdfPage != null && page.pdfPage <= source.pageCount) {
+      queueReviewPreview(image ?? undefined, () => renderReviewPreview(source, page.pdfPage! - 1));
+    } else if (image) {
+      image.alt = `${image.alt} - 배경 미리보기 없음`;
+    }
+    card.querySelectorAll<HTMLButtonElement>("[data-value]").forEach((button) => button.addEventListener("click", () => {
+      separatePageDecisions.set(page.noteId, button.dataset.value as "keep" | "delete");
+      renderSeparateReviews();
+      refreshTransferSummary();
+      if (byId<HTMLDetailsElement>("transferMapDetails").open) transferBoard?.render();
+      syncCreateButtons();
+    }));
+    container.append(card);
+  }
+}
+
 function syncCreateButtons(): void {
   const ready = Boolean(goodnotesFile && inspection && transferMatch && targetFingerprints.length
-    && reviewPairs.every((pair) => reviewDecisions.has(reviewKey(pair))));
+    && reviewPairs.every((pair) => reviewDecisions.has(reviewKey(pair)))
+    && separateReviewCandidates().every((page) => separatePageDecisions.has(page.noteId)));
   byId<HTMLButtonElement>("createGoodnotesButton").disabled = !ready;
 }
 
@@ -518,21 +579,11 @@ byId<HTMLDetailsElement>("transferMapDetails").addEventListener("toggle", (event
   if (!details.open || !transferOrder.length) return;
   transferBoard ??= new PageBoard({
     container: byId("transferPageBoard"),
-    pages: () => [...transferOrder.map((page, index): BoardPage => ({
-      id: page.id,
-      title: `${index + 1}번째`,
-      subtitle: `수정 PDF ${page.pageIndex + 1}쪽`,
-      status: transferStatuses.get(page.pageIndex) ?? "added",
-    })), ...extraActivePages().map((page, index): BoardPage => ({
-      id: `existing:${page.noteId}`,
-      title: `${transferOrder.length + index + 1}번째`,
-      subtitle: page.pdfPage == null ? "기존 별도 페이지" : `기존 PDF ${page.pdfPage}쪽 · 별도 유지`,
-      status: "kept",
-    }))],
+    pages: transferBoardPages,
     thumbnail: async (page) => {
       if (page.id.startsWith("existing:")) {
-        const existing = extraActivePages().find((candidate) => `existing:${candidate.noteId}` === page.id);
-        const source = transferBackgroundSource();
+        const existing = separateReviewCandidates().find((candidate) => `existing:${candidate.noteId}` === page.id);
+        const source = existing ? existingPageBackgroundSource(existing) : null;
         if (!existing || existing.pdfPage == null || !source) throw new Error("기존 페이지 미리보기를 찾지 못했습니다.");
         return renderThumbnail(source, existing.pdfPage - 1);
       }
@@ -540,13 +591,67 @@ byId<HTMLDetailsElement>("transferMapDetails").addEventListener("toggle", (event
       return renderThumbnail(revisedWorkspace.sources.get(item.sourceId)!, item.pageIndex);
     },
     onReorder: (oldIndex, newIndex) => {
-      if (oldIndex >= transferOrder.length || newIndex >= transferOrder.length) return;
-      const [moved] = transferOrder.splice(oldIndex, 1);
-      if (moved) transferOrder.splice(newIndex, 0, moved);
+      const displayed = transferBoardPages();
+      const [moved] = displayed.splice(oldIndex, 1);
+      if (!moved || moved.id.startsWith("existing:")) return;
+      displayed.splice(newIndex, 0, moved);
+      const order = displayed.filter((page) => !page.id.startsWith("existing:")).map((page) => page.id);
+      transferOrder.sort((left, right) => order.indexOf(left.id) - order.indexOf(right.id));
     },
   });
   transferBoard.render();
 });
+
+function transferBoardPages(): BoardPage[] {
+  if (!inspection) return [];
+  const targetCards = transferOrder.map((page): BoardPage => ({
+    id: page.id,
+    title: "",
+    subtitle: `수정 PDF ${page.pageIndex + 1}쪽`,
+    status: transferStatuses.get(page.pageIndex) ?? "added",
+  }));
+  const keptPages = separateReviewCandidates().filter((page) => separatePageDecisions.get(page.noteId) === "keep");
+  const classified = classifyExistingPages(
+    inspection.activePages,
+    new Set(inspection.backgroundAttachmentIds),
+    (page) => inspection!.entries[page.notePath]?.length ?? 0,
+  );
+  const canonicalSourceById = new Map([...classified.canonicalBySource].map(([source, page]) => [page.noteId, source]));
+  const targetPosition = new Map(transferOrder.map((page, position) => [page.pageIndex, position]));
+  const buckets = new Map<number, GoodNotesPage[]>();
+  for (const page of keptPages) {
+    const originalIndex = inspection.activePages.findIndex((candidate) => candidate.noteId === page.noteId);
+    let boundary: number | undefined;
+    for (let index = originalIndex - 1; index >= 0; index--) {
+      const sourceIndex = canonicalSourceById.get(inspection.activePages[index]!.noteId);
+      const targetIndex = sourceIndex == null ? undefined : transferMatch?.mapping.get(sourceIndex);
+      const position = targetIndex == null ? undefined : targetPosition.get(targetIndex);
+      if (position != null) { boundary = position + 1; break; }
+    }
+    if (boundary == null) {
+      for (let index = originalIndex + 1; index < inspection.activePages.length; index++) {
+        const sourceIndex = canonicalSourceById.get(inspection.activePages[index]!.noteId);
+        const targetIndex = sourceIndex == null ? undefined : transferMatch?.mapping.get(sourceIndex);
+        const position = targetIndex == null ? undefined : targetPosition.get(targetIndex);
+        if (position != null) { boundary = position; break; }
+      }
+    }
+    boundary ??= targetCards.length;
+    const bucket = buckets.get(boundary) ?? [];
+    bucket.push(page);
+    buckets.set(boundary, bucket);
+  }
+  const output: BoardPage[] = [];
+  for (let position = 0; position <= targetCards.length; position++) {
+    for (const page of buckets.get(position) ?? []) {
+      const originalPosition = inspection.activePages.findIndex((candidate) => candidate.noteId === page.noteId) + 1;
+      output.push({ id: `existing:${page.noteId}`, title: "", subtitle: `기존 ${originalPosition}쪽 · 위치 유지`, status: "kept" });
+    }
+    if (position < targetCards.length) output.push(targetCards[position]!);
+  }
+  output.forEach((page, index) => { page.title = `${index + 1}번째`; });
+  return output;
+}
 
 async function createTransferredFile(): Promise<File> {
   if (!goodnotesFile || !inspection || !transferMatch) throw new Error("파일을 다시 분석해 주세요.");
@@ -567,13 +672,16 @@ async function createTransferredFile(): Promise<File> {
     sourceFingerprints,
     targetFingerprints,
     keepSourcePages: deletedReviewCandidates().filter((sourceIndex) => deletedPageDecisions.get(sourceIndex) === "keep"),
+    keepSeparatePageIds: separateReviewCandidates()
+      .filter((page) => separatePageDecisions.get(page.noteId) === "keep")
+      .map((page) => page.noteId),
   });
   const outputName = normalizeGoodNotesOutputName(
     byId<HTMLInputElement>("transferOutputName").value,
     goodnotesFile.name,
   );
   byId<HTMLInputElement>("transferOutputName").value = outputName;
-  status("transferStatus", `완료 · 최종 활성 ${result.finalActivePages}장 · 추가 ${result.pagesAdded}장 · 삭제 ${result.pagesDeleted}장 · 맨 뒤 보관 ${result.pagesKeptAtEnd}장`, "success");
+  status("transferStatus", `완료 · 최종 활성 ${result.finalActivePages}장 · 추가 ${result.pagesAdded}장 · 삭제 ${result.pagesDeleted}장 · 기존 위치 유지 ${result.pagesKeptInPlace}장`, "success");
   return new File([result.bytes.buffer as ArrayBuffer], outputName, { type: "application/octet-stream" });
 }
 
