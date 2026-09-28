@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { availableTargetPages, deletedSourcePages, requiresNoteBearingPageReview, requiresPageReview, reviewableDeletedSourcePages, type ReviewCandidate } from "../src/pdf/review-policy";
-import { fingerprintDistance, type PageFingerprint } from "../src/pdf/page-match";
+import { fingerprintDistance, matchFingerprints, type PageFingerprint } from "../src/pdf/page-match";
 
 const pair = (distance: number | null): ReviewCandidate => ({
   sourceIndex: 0,
@@ -61,5 +61,39 @@ describe("device-independent text matching", () => {
     const source = fingerprint("platelet adhesion and coagulation cascade", [0]);
     const target = fingerprint("plateletadhesionandcoagulationcascade", [0]);
     expect(fingerprintDistance(source, target)).toBeLessThan(0.25);
+  });
+});
+
+describe("position-anchored replacement matching", () => {
+  const fingerprint = (index: number, cells: number[]): PageFingerprint => ({
+    index,
+    text: "",
+    cells,
+    fullCells: cells,
+    edgeCells: cells,
+    aspect: 1,
+  });
+  const same = (index: number) => fingerprint(index, [index, index + 1, index + 2, index + 3]);
+  const oldDesign = (index: number) => fingerprint(index, [12, -12, 12, -12]);
+  const newDesign = (index: number) => fingerprint(index, [-12, 12, -12, 12]);
+
+  it("recovers redesigned pages before the first unchanged anchor", () => {
+    const source = [oldDesign(0), oldDesign(1), same(2), same(3)];
+    const target = [newDesign(0), newDesign(1), same(2), same(3)];
+    expect([...matchFingerprints(source, target).mapping.entries()]).toEqual([[0, 0], [1, 1], [2, 2], [3, 3]]);
+  });
+
+  it("recovers redesigned pages after the last unchanged anchor", () => {
+    const source = [same(0), same(1), oldDesign(2), oldDesign(3)];
+    const target = [same(0), same(1), newDesign(2), newDesign(3)];
+    expect([...matchFingerprints(source, target).mapping.entries()]).toEqual([[0, 0], [1, 1], [2, 2], [3, 3]]);
+  });
+
+  it("does not map an old-only trailing page to an arbitrary revised page", () => {
+    const source = [same(0), same(1), oldDesign(2)];
+    const target = [same(0), same(1)];
+    const result = matchFingerprints(source, target);
+    expect([...result.mapping.entries()]).toEqual([[0, 0], [1, 1]]);
+    expect(result.sourceOnly).toEqual([2]);
   });
 });
