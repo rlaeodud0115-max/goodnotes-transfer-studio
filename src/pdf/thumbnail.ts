@@ -2,7 +2,6 @@ import type { PdfSource } from "./composer";
 import { openPdfDocument, type OpenPdfDocumentTask } from "./pdfjs";
 
 const documents = new Map<string, OpenPdfDocumentTask["promise"]>();
-let renderTail: Promise<void> = Promise.resolve();
 
 async function open(source: PdfSource) {
   let pending = documents.get(source.id);
@@ -13,7 +12,7 @@ async function open(source: PdfSource) {
   return pending;
 }
 
-async function renderThumbnailNow(source: PdfSource, pageIndex: number, maxWidth: number, quality: number): Promise<string> {
+export async function renderThumbnail(source: PdfSource, pageIndex: number, maxWidth = 260, quality = 0.78): Promise<string> {
   const document = await open(source);
   const page = await document.getPage(pageIndex + 1);
   const original = page.getViewport({ scale: 1 });
@@ -33,12 +32,6 @@ async function renderThumbnailNow(source: PdfSource, pageIndex: number, maxWidth
   }
 }
 
-export function renderThumbnail(source: PdfSource, pageIndex: number, maxWidth = 260, quality = 0.78): Promise<string> {
-  const result = renderTail.then(() => renderThumbnailNow(source, pageIndex, maxWidth, quality));
-  renderTail = result.then(() => undefined, () => undefined);
-  return result;
-}
-
 /** Higher-resolution image used only for pages that need a human decision. */
 export function renderReviewPreview(source: PdfSource, pageIndex: number): Promise<string> {
   return renderThumbnail(source, pageIndex, 900, 0.92);
@@ -52,9 +45,6 @@ function documentOwnerCanvas(width: number, height: number): HTMLCanvasElement {
 }
 
 export async function releasePdfPreviews(sourceIds?: Iterable<string>): Promise<void> {
-  // Do not destroy a PDF document while a queued Safari canvas render still
-  // owns one of its pages. That race used to leave intermittent white previews.
-  await renderTail;
   const ids = sourceIds ? [...new Set(sourceIds)] : [...documents.keys()];
   const pending = ids.flatMap((id) => {
     const item = documents.get(id);

@@ -321,88 +321,14 @@ function matchFromMatrix(matrix: number[][], rows: number, columns: number): Mat
     else { pairs.push({ sourceIndex: null, targetIndex: --j, distance: null, margin: null }); }
   }
   pairs.reverse();
-  const recoveredPairs = recoverAlignedReplacementRuns(pairs, matrix, rows, columns);
   const mapping = new Map<number, number>();
-  for (const pair of recoveredPairs) if (pair.sourceIndex != null && pair.targetIndex != null) mapping.set(pair.sourceIndex, pair.targetIndex);
+  for (const pair of pairs) if (pair.sourceIndex != null && pair.targetIndex != null) mapping.set(pair.sourceIndex, pair.targetIndex);
   return {
-    pairs: recoveredPairs,
-    sourceOnly: recoveredPairs.flatMap((pair) => pair.sourceIndex != null && pair.targetIndex == null ? [pair.sourceIndex] : []),
-    targetOnly: recoveredPairs.flatMap((pair) => pair.targetIndex != null && pair.sourceIndex == null ? [pair.targetIndex] : []),
+    pairs,
+    sourceOnly: pairs.flatMap((pair) => pair.sourceIndex != null && pair.targetIndex == null ? [pair.sourceIndex] : []),
+    targetOnly: pairs.flatMap((pair) => pair.targetIndex != null && pair.sourceIndex == null ? [pair.targetIndex] : []),
     mapping,
   };
-}
-
-function matchedPair(matrix: number[][], rows: number, columns: number, sourceIndex: number, targetIndex: number): PagePair {
-  const distance = matrix[sourceIndex]![targetIndex]!;
-  let competitor = Infinity;
-  for (let column = 0; column < columns; column++) {
-    if (column !== targetIndex) competitor = Math.min(competitor, matrix[sourceIndex]![column]!);
-  }
-  for (let row = 0; row < rows; row++) {
-    if (row !== sourceIndex) competitor = Math.min(competitor, matrix[row]![targetIndex]!);
-  }
-  return {
-    sourceIndex,
-    targetIndex,
-    distance,
-    margin: Number.isFinite(competitor) ? competitor - distance : null,
-  };
-}
-
-/**
- * A sequence aligner naturally describes a completely redesigned page as one
- * deletion followed by one insertion when their visual distance costs more
- * than two gaps. If equally-sized runs are enclosed by the same neighbouring
- * pages, however, their document position proves that they are replacements.
- * Recover those pairs so note-bearing pages are shown for confirmation instead
- * of silently becoming unrelated deleted/new pages.
- */
-function recoverAlignedReplacementRuns(
-  pairs: PagePair[],
-  matrix: number[][],
-  rows: number,
-  columns: number,
-): PagePair[] {
-  const output: PagePair[] = [];
-  let cursor = 0;
-  while (cursor < pairs.length) {
-    const pair = pairs[cursor]!;
-    if (pair.sourceIndex != null && pair.targetIndex != null) {
-      output.push(pair);
-      cursor++;
-      continue;
-    }
-
-    const start = cursor;
-    while (cursor < pairs.length) {
-      const current = pairs[cursor]!;
-      if (current.sourceIndex != null && current.targetIndex != null) break;
-      cursor++;
-    }
-    const run = pairs.slice(start, cursor);
-    const sourceIndices = run.flatMap((item) => item.sourceIndex != null ? [item.sourceIndex] : []).sort((a, b) => a - b);
-    const targetIndices = run.flatMap((item) => item.targetIndex != null ? [item.targetIndex] : []).sort((a, b) => a - b);
-    const previous = output.at(-1);
-    const next = pairs[cursor];
-    const hasEqualRuns = sourceIndices.length > 0 && sourceIndices.length === targetIndices.length;
-    const boundedByAlignedNeighbours = previous?.sourceIndex != null
-      && previous.targetIndex != null
-      && next?.sourceIndex != null
-      && next.targetIndex != null
-      && previous.sourceIndex + sourceIndices.length + 1 === next.sourceIndex
-      && previous.targetIndex + targetIndices.length + 1 === next.targetIndex
-      && sourceIndices.every((value, index) => value === previous.sourceIndex! + index + 1)
-      && targetIndices.every((value, index) => value === previous.targetIndex! + index + 1);
-
-    if (hasEqualRuns && boundedByAlignedNeighbours) {
-      for (let index = 0; index < sourceIndices.length; index++) {
-        output.push(matchedPair(matrix, rows, columns, sourceIndices[index]!, targetIndices[index]!));
-      }
-    } else {
-      output.push(...run);
-    }
-  }
-  return output;
 }
 
 export function estimateAlignment(source: PageFingerprint[], target: PageFingerprint[], match: MatchResult): PageAlignment | null {
