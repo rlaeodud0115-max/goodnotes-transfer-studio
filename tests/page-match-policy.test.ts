@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { availableTargetPages, deletedSourcePages, requiresNoteBearingPageReview, requiresPageReview, reviewableDeletedSourcePages, type ReviewCandidate } from "../src/pdf/review-policy";
-import { fingerprintDistance, type PageFingerprint } from "../src/pdf/page-match";
+import { fingerprintDistance, matchFingerprints, type PageFingerprint } from "../src/pdf/page-match";
 
 const pair = (distance: number | null): ReviewCandidate => ({
   sourceIndex: 0,
@@ -61,5 +61,35 @@ describe("device-independent text matching", () => {
     const source = fingerprint("platelet adhesion and coagulation cascade", [0]);
     const target = fingerprint("plateletadhesionandcoagulationcascade", [0]);
     expect(fingerprintDistance(source, target)).toBeLessThan(0.25);
+  });
+});
+
+describe("position-anchored replacement matching", () => {
+  const fingerprint = (index: number, cells: number[]): PageFingerprint => ({
+    index,
+    text: "",
+    cells,
+    fullCells: cells,
+    edgeCells: cells,
+    aspect: 1,
+  });
+
+  it("recovers a redesigned page between unchanged neighbouring pages", () => {
+    const source = [
+      fingerprint(0, [0, 1, 2, 3]),
+      fingerprint(1, [12, -12, 12, -12]),
+      fingerprint(2, [3, 2, 1, 0]),
+    ];
+    const target = [
+      fingerprint(0, [0, 1, 2, 3]),
+      fingerprint(1, [-12, 12, -12, 12]),
+      fingerprint(2, [3, 2, 1, 0]),
+    ];
+
+    const result = matchFingerprints(source, target);
+    expect([...result.mapping.entries()]).toEqual([[0, 0], [1, 1], [2, 2]]);
+    expect(result.sourceOnly).toEqual([]);
+    expect(result.targetOnly).toEqual([]);
+    expect(result.pairs[1]?.distance).toBeGreaterThanOrEqual(0.25);
   });
 });
